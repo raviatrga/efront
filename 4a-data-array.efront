@@ -1,0 +1,79 @@
+LIBNAME USER CURRENT;
+
+DATA DATA_ARRAY;
+
+    // The choices for TYPEs were an attempt to match
+    // the layout in "5.1.1. DATA - ARRAY".
+    COLUMN FUND_ID LABEL = "Fund Id" TYPE = STRING;
+    COLUMN INVESTOR_ID LABEL = "Investor Id" TYPE = STRING;
+    COLUMN SHARE_INDEX LABEL = "Share Index" TYPE = INTEGER;
+    COLUMN SHARE_NAME LABEL = "Share Name" TYPE = STRING;
+    COLUMN SHARE_PRICE LABEL = "Share Price" TYPE = DOUBLE;
+
+    FUND_ID = 102;
+    INVESTOR_ID = 324;
+    SHARE_INDEX = 1;
+    SHARE_NAME = "A1";
+    SHARE_PRICE = 1;
+
+    OUTPUT;
+
+    FUND_ID = 102;
+    INVESTOR_ID = 324;
+    SHARE_INDEX = 2;
+    SHARE_NAME = "A2";
+    SHARE_PRICE = 20;
+
+    OUTPUT;
+
+    FUND_ID = 102;
+    INVESTOR_ID = 324;
+    SHARE_INDEX = 3;
+    SHARE_NAME = "A3";
+    SHARE_PRICE = 30;
+
+    OUTPUT;
+
+    FUND_ID = 102;
+    INVESTOR_ID = 324;
+    SHARE_INDEX = 4;
+    SHARE_NAME = "A4";
+    SHARE_PRICE = 40;
+
+    OUTPUT;
+
+    FUND_ID = 103;
+    INVESTOR_ID = 524;
+    SHARE_INDEX = 1;
+    SHARE_NAME = "A1";
+    SHARE_PRICE = 1;
+
+    OUTPUT;
+
+    FUND_ID = 103;
+    INVESTOR_ID = 524;
+    SHARE_INDEX = 2;
+    SHARE_NAME = "A2";
+    SHARE_PRICE = 20;
+
+    OUTPUT;
+
+    FUND_ID = 103;
+    INVESTOR_ID = 524;
+    SHARE_INDEX = 3;
+    SHARE_NAME = "A3";
+    SHARE_PRICE = 30;
+
+    OUTPUT;
+
+    FUND_ID = 103;
+    INVESTOR_ID = 524;
+    SHARE_INDEX = 4;
+    SHARE_NAME = "A4";
+    SHARE_PRICE = 40;
+
+    OUTPUT;
+
+RUN;
+
+PROC PRINT DATA = DATA_ARRAY LABEL; RUN;

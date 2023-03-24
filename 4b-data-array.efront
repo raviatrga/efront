@@ -1,0 +1,74 @@
+LIBNAME USER "\\IT Reporting\Ravi\sandbox";
+
+// Print the input table.
+PROC PRINT DATA = USER.INPUT_TRANSACTIONS LABEL NOOBS; RUN;
+
+/*
+  Create a new table by copying the input table
+  and adding two groups of columns that function as
+  array elements for two of the input table columns.
+*/
+DATA USER.OUTPUT_TRANSACTIONS (DROP = SHARE_INDEX SHARE_NAME SHARE_PRICE);
+
+    SET USER.INPUT_TRANSACTIONS;
+
+    COLUMN SHARE_NAME_1 LABEL = "Share Name of Instrument 1" TYPE = STRING;
+
+    COLUMN SHARE_NAME_2 LABEL = "Share Name of Instrument 2" TYPE = STRING;
+
+    COLUMN SHARE_NAME_3 LABEL = "Share Name of Instrument 3" TYPE = STRING;
+
+    COLUMN SHARE_NAME_4 LABEL = "Share Name of Instrument 4" TYPE = STRING;
+
+    COLUMN SHARE_PRICE_1 LABEL = "Share Price of Instrument 1" TYPE = DOUBLE;
+
+    COLUMN SHARE_PRICE_2 LABEL = "Share Price of Instrument 2" TYPE = DOUBLE;
+
+    COLUMN SHARE_PRICE_3 LABEL = "Share Price of Instrument 3" TYPE = DOUBLE;
+
+    COLUMN SHARE_PRICE_4 LABEL = "Share Price of Instrument 4" TYPE = DOUBLE;
+
+/*
+  Transform the columns SHARE_NAME and SHARE_PRICE into arrays,
+  and define 4 array elements for each array.
+*/
+    ARRAY SHARE_NAME{} SHARE_NAME_1-SHARE_NAME_4;
+    ARRAY SHARE_PRICE{} SHARE_PRICE_1-SHARE_PRICE_4;
+
+/*
+  Migrate the values from the SHARE_NAME and SHARE_PRICE columns
+  into the corresponding array elements.
+*/
+    IF (SHARE_INDEX >= 1 AND SHARE_INDEX <= 4) THEN
+        SHARE_NAME{SHARE_INDEX} = SHARE_NAME;
+        SHARE_PRICE{SHARE_INDEX} = SHARE_PRICE;
+    END;
+
+RUN;
+
+PROC PRINT DATA = USER.OUTPUT_TRANSACTIONS LABEL NOOBS; RUN;
+
+// Regroup the columns.
+PROC MEANS DATA = USER.OUTPUT_TRANSACTIONS;
+
+    /*
+      Running this statement alone would print merely the two CLASS columns,
+      with only two rows, reflecting the two distinct values in those columns.
+    */
+    CLASS FUND_ID INVESTOR_ID;
+
+    LAST
+        SHARE_NAME_1 (LABEL = "Share Name of Instrument 1")
+        SHARE_NAME_2 (LABEL = "Share Name of Instrument 2")
+        SHARE_NAME_3 (LABEL = "Share Name of Instrument 3")
+        SHARE_NAME_4 (LABEL = "Share Name of Instrument 4");
+
+    LAST
+        SHARE_PRICE_1 (LABEL = "Share Price of Instrument 1")
+        SHARE_PRICE_2 (LABEL = "Share Price of Instrument 2")
+        SHARE_PRICE_3 (LABEL = "Share Price of Instrument 3")
+        SHARE_PRICE_4 (LABEL = "Share Price of Instrument 4");
+
+RUN;
+
+PROC PRINT DATA = USER.OUTPUT_TRANSACTIONS LABEL NOOBS; RUN;

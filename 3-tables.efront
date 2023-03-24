@@ -1,0 +1,16 @@
+LIBNAME USER CURRENT;
+
+DATA TABLES;
+    SQL "
+        SELECT TABLE_NAME
+        FROM INFORMATION_SCHEMA.TABLES
+        ORDER BY TABLE_NAME
+    ";
+    COLUMN "Table Name";
+RUN;
+
+/*
+  Although the table width is adjustable,
+  the column values appear to be truncated.
+*/
+PROC PRINT DATA = TABLES STYLE(DATA)=(WIDTH=100); RUN;

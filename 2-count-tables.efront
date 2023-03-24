@@ -1,0 +1,27 @@
+/*
+  'USER' lets the Table get written to the CURRENT folder.
+*/
+LIBNAME USER CURRENT;
+
+/*
+  PREFIXING the Table name with 'WORK.'
+  designates it as merely a runtime object,
+  preventing it from being saved.
+*/
+DATA TABLE_COUNT;
+    SQL "
+        SELECT COUNT(*)
+        FROM INFORMATION_SCHEMA.TABLES
+    ";
+
+    /*
+      Unlike in the 5.1.1 DATA - ARRAY example,
+      not only is a COLUMN name with a separate LABEL not required,
+      the LABEL gets ignored if a name is provided!
+
+      Also, the TYPE isn't required here.
+    */
+    COLUMN "Num Tables"; // TYPE = INTEGER;
+RUN;
+
+PROC PRINT DATA = TABLE_COUNT; RUN;

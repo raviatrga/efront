@@ -1,0 +1,38 @@
+LIBNAME USER CURRENT;
+
+DATA DATA_COLUMN_OUTPUT;
+
+    /*
+      NOTE:
+      The COLUMN LABELs appear in the PROC PRINT output,
+      but not in the saved table.
+
+      QUESTION:
+      The 'WIDTH' option, described in "4.5.6 COLUMN statement",
+      throws a NullReferenceException.
+    */
+    COLUMN ID;
+    COLUMN FIRST_NAME LABEL = 'First Name';
+    COLUMN LAST_NAME LABEL = 'Last Name';
+
+    ID = "101";
+    FIRST_NAME = "Ravi";
+    LAST_NAME = "Ponamgi";
+
+    OUTPUT;
+
+    ID = "102";
+    FIRST_NAME = "Madhu";
+    LAST_NAME = "Samakur";
+
+    OUTPUT;
+
+    ID = "103";
+    FIRST_NAME = "Raina";
+    LAST_NAME = "Samakur";
+
+    OUTPUT;
+
+RUN;
+
+PROC PRINT DATA = DATA_COLUMN_OUTPUT LABEL; RUN;
