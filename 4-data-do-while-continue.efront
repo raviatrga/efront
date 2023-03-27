@@ -1,0 +1,29 @@
+LIBNAME USER CURRENT;
+
+DATA RAVI_DO;
+
+// QUESTION: Isn't CHAR supposed to be only 1 character?
+// (If not, why not use STRING?)
+COLUMN R TYPE = CHAR LABEL = "Name";
+COLUMN I TYPE = INTEGER;
+
+R = "Ravi Ponamgi";
+I = 0;
+
+DO WHILE (I < 5)
+
+    IF (I = 2) THEN
+        I = I + 1;
+        CONTINUE;
+    END;
+
+    R = MID(R, 2, 9);
+    I = I + 1;
+
+    OUTPUT;
+
+LOOP;
+
+RUN;
+
+PROC PRINT DATA = RAVI_DO (DROP = I); RUN;
