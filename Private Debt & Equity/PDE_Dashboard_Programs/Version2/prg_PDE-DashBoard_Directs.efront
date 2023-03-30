@@ -1,0 +1,2846 @@
+//LOANS QUERY
+
+DATA WORK.INVSTINS;								   
+	SQL "
+           WITH INVESTMENTS AS (
+            
+            SELECT 
+             MIN(INVINS.ACCOUNTINS)                          AS INVINS_ACCOUNTINS
+            ,MIN(VCINV.IQID)                                AS VCINV_IQID
+            ,MIN(INVINS.USERTEXT19)                         AS RGA_CUSIP
+			,MIN(SFA_CMP.IQID)                              AS SFA_CMP_IQID 
+            ,MIN(INVINS.IQID)                               AS INVINS_IQID
+            ,MIN(SFA_CMP.INDUSTRY)                          AS SFA_CMP_INDUSTRY
+            ,MIN(INVINS.UserText49)                         AS ADMINISTRATIVE_AGENT
+            
+            ,SUM((CASE WHEN A.Code IN ('LN02','LN03','LN70','LN71','LN81','LN82') THEN A.AMOUNT2 ELSE 0 END)*(-1))    AS INVESTMENT_AMOUNT
+            ,SUM((CASE WHEN A.Code = 'LN01' THEN A.Commitment2 ELSE 0 END)* (-1))    AS COMMITMENT
+            ,SUM(CASE WHEN A.Code = 'LN30' THEN A.Valuation2 ELSE 0 END) AS VALUATION                    
+           
+            --,CAST(DATEPART(YYYY,MIN(A.CLOSEDATE)) AS varchar(4)) INV_YEAR
+            ,MIN(INVINS.UserNum5) as Inv_Year    -- 02/15/2022 MB
+            
+            ,MIN(VCPRT.PORTFOLIO)                           AS PORTFOLIO
+            ,MIN(SFA_CMP.ShortName)                         AS short_code
+            ,MIN(VCINV.ACCOUNT)                             AS VCINV_ACCOUNT
+            ,MIN(INVINS.LIBELLE)                            AS COMPANY_LEGAL_NAME
+            ,MIN(INVINS.CURRENCY1)                          AS INST_CURR
+            ,MIN(SFAS.CITY)				                    AS HQ_CITY
+            ,MIN(STATES.STATECODE)	                        AS HQ_STATE
+            ,MIN(COUNTRIES.ISOALPHA3)                       AS HQ_COUNTRY
+            ,CASE MIN(INVINS.UserText50) 
+                WHEN 1 THEN 'C-Corp'
+                WHEN 2 THEN 'LP'
+                WHEN 3 THEN 'LLC'
+                WHEN 4 THEN 'Other'
+            END                                             AS LEGAL_STRUCTURE 
+            ,CASE MIN(INVINS.UserText16)
+                WHEN 1 THEN 'Lead'
+                WHEN 2 THEN 'Co-Lead'
+                WHEN 3 THEN 'Participant'
+            END                                            AS PDE_ROLE
+            ,COALESCE(MIN(INVINS.UserText17), 'NA')                         AS AMORTIZATION
+                
+            --,MIN(INVINS.USERTEXT46) INSTR_STATUS        --- DD 2018_02_28 added new field base on Ticket ITM0251960
+            ,MIN(SFA_CMP.NAME) COMPANY
+            ,MIN(CAST(SFA_CMP.DESCRIPTION AS nvarchar(max))) AS COMPANY_DESCRIPTION
+            ,MIN(SFA_CMP.CREATIONDATE) CREATIONDATE 
+	 
+            ,MIN(InvIns.UserDate2) as USERDATE2     
+            ,MIN(INVINS.CURRENCY1) CURRENCY
+            ,MIN(INVINS.USERTEXT18) AS TOTAL_FACILITY_SIZE
+            
+            ,MIN(ltrim(rtrim(INVINS.usertext23))) Cusip
+            
+            ,CASE 
+                 WHEN MIN(INVINS.UserText47) IN ('1','2','3','4') THEN 'Unitranche'
+                 WHEN MIN(INVINS.UserText47) IN ('7','8','9') THEN 'Mezzanine'
+                 WHEN MIN(INVINS.UserText47) IN ('5', '6') THEN 'Second Lien'
+                 ELSE 'NA'
+             END as UNITRANCHE_MEZZ
+		
+            ,CASE
+                 WHEN MIN(INVINS.UserText47) IN ('1','2') THEN '1st Lien'
+                 WHEN MIN(INVINS.UserText47) IN ('3','4') THEN 'Split 1st Lien'
+                 WHEN MIN(INVINS.UserText47) IN ('5','6','7') THEN '2nd Lien'
+                 WHEN MIN(INVINS.UserText47) IN ('8','9') THEN 'Unsecured'
+                 ELSE 'NA'
+             END as Collateral
+
+            ,(CASE MIN(INVINS.USERTEXT47)
+                    when  '1' then 'Revolver' 
+                    when  '2' then 'Term Loan' 
+                    when  '3' then 'Strip Unitranche' 
+                    when  '4' then 'Split First Lien' 
+                    when  '5' then 'Bifurcated LO Unitranche' 
+                    when  '6' then 'Second Lien' 
+                    when  '7' then 'Senior Secured Sub. Debt' 
+                    when  '8' then 'Senior Unsecured Sub. Debt' 
+                    when  '9' then 'Junior Sub. Debt' 
+                    when  '10' then 'Preferred Equity' 
+                    when  '11' then 'Common Equity' 
+                    when  '12' then 'Warrant' 
+            end) as FACILITY
+                 
+            , (CASE MIN(INVINS.USERTEXT47)
+                when '1' then 'Senior Debt' 
+                when '2' then 'Senior Debt' 
+                when '3' then 'Unitranche Debt' 
+                when '4' then 'Unitranche Debt'
+                when '5' then 'Second Lien Debt' 
+                when '6' then 'Second Lien Debt' 
+                when '7' then 'Subordinated Debt'
+                when '8' then 'Subordinated Debt'
+                when '9' then 'Subordinated Debt'
+                when '10' then 'Preferred Equity'
+                when '11' then 'Common Equity'
+                when '12' then 'Common Equity'
+            end) as SENIORITY  
+             
+            ,(case 
+                when MIN(INVINS.USERTEXT41) = '1' then 'Debt Hedge Fund' 
+                when MIN(INVINS.USERTEXT41) = '2' then 'Alternatives Preferred Stock' 
+                when MIN(INVINS.USERTEXT41) = '3' then 'Senior Secured Loan' 
+                when MIN(INVINS.USERTEXT41) = '4' then 'Subordinated Loan' 
+                when MIN(INVINS.USERTEXT41) = '5' then 'Distressed Debt' 
+                when MIN(INVINS.USERTEXT41) = '6' then 'Real Asset Debt' 
+                when MIN(INVINS.USERTEXT41) = '7' then 'Senior Secured Loan' 
+                when MIN(INVINS.USERTEXT41) = '8' then 'Subordinated Loan/Mezzanine Funds' 
+                when MIN(INVINS.USERTEXT41) = '9' then 'Senior Secured Loan' 
+                when MIN(INVINS.USERTEXT41) = '10' then 'Subordinated Loan' 
+                when MIN(INVINS.USERTEXT41) = '11' then 'Senior Secured Loan' 
+                when MIN(INVINS.USERTEXT41) = '12' then 'Subordinated Loan' 
+                when MIN(INVINS.USERTEXT41) = '13' then 'Equity Hedge Fund' 
+                when MIN(INVINS.USERTEXT41) = '14' then 'Alternatives Common Stock' 
+                when MIN(INVINS.USERTEXT41) = '15' then 'Alternatives Preferred Stock' 
+                when MIN(INVINS.USERTEXT41) = '16' then 'Warrants' 
+                when MIN(INVINS.USERTEXT41) = '17' then 'Buyout' 
+                when MIN(INVINS.USERTEXT41) = '18' then 'Growth' 
+                when MIN(INVINS.USERTEXT41) = '19' then 'Real Asset Equity' 
+                when MIN(INVINS.USERTEXT41) = '20' then 'Secondary' 
+                when MIN(INVINS.USERTEXT41) = '21' then 'Venture Capital' 
+                when MIN(INVINS.USERTEXT41) = '22' then 'Structured Alternatives Common Stock' 
+                when MIN(INVINS.USERTEXT41) = '23' then 'Structured Alternatives Preferred Stock' 
+                when MIN(INVINS.USERTEXT41) = '24' then 'Senior Loan' 
+                when MIN(INVINS.USERTEXT41) = '25' then 'Subordinated Loan' 
+            end) as Security 
+           
+            
+            ,MIN(SFA_CMP.USERTEXT30) AS DEAL_LEAD
+            ,MIN(SFA_CMP.USERTEXT31) AS DEAL_SECONDARY
+            ,MIN(SFA_CMP.USERTEXT32) AS DEAL_TERTIARY
+            
+			,COALESCE(MIN(RATE.BASERATE), MIN(LSTRATEPIK.BASERATE)) AS PIK
+			,COALESCE(
+                COALESCE(
+                        (CASE WHEN MIN(FIXED_FLOAT_1.Floating) = 1 THEN 'Floating' WHEN MIN(FIXED_FLOAT_1.Floating) = '0' THEN 'Fixed' ELSE NULL END),
+                        (CASE WHEN MIN(FIXED_FLOAT_2.Floating) = 1 THEN 'Floating' WHEN MIN(FIXED_FLOAT_2.Floating) = '0' THEN 'Fixed' END)
+                ), 'NA'
+            ) as Fixed_Floating
+
+
+            --company ratings
+            ,(CASE WHEN MIN(AjxCmp_EganJones.MetaText1) IS NOT NULL THEN MIN(AjxCmp_EganJones.MetaText1) ELSE 
+                MIN(AjxCmpMax_EganJones.Rating) 
+            END) as EganJonesCmpRating
+            
+            ,(CASE WHEN MIN(AjxCmp_NAIC.MetaText1) IS NOT NULL THEN MIN(AjxCmp_NAIC.MetaText1) ELSE 
+                MIN(AjxCmpMax_NAIC.Rating) 
+            END) as NAICCmpRating
+            
+            ,(CASE WHEN MIN(AjxCmp_PDE.MetaText1) IS NOT NULL THEN MIN(AjxCmp_PDE.MetaText1) ELSE 
+                MIN(AjxCmpMax_PDE.Rating) 
+            END) as PDERating
+            
+            ,(CASE WHEN MIN(AjxCmp_RGAPlaceholder.MetaText1) IS NOT NULL THEN MIN(AjxCmp_RGAPlaceholder.MetaText1) ELSE 
+                MIN(AjxCmpMax_RGAPlaceholder.Rating) 
+            END) as RGAPlaceholderCmpRating
+            
+            --pde company raing score
+            ,(CASE WHEN MIN(AjxCmp_PDE.MetaText5) IS NOT NULL THEN MIN(AjxCmp_PDE.MetaText5) ELSE 
+                MIN(AjxCmpMax_PDE.Score) 
+            END) as PDEScore
+           
+             --instrument ratings 
+            ,(CASE WHEN MIN(AjxIns_EganJones.MetaText1) IS NOT NULL THEN MIN(AjxIns_EganJones.MetaText1) ELSE
+                MIN(AjxInsMax_EganJones.Rating) 
+            END) as EganJonesInsRating
+            
+            ,(CASE WHEN MIN(AjxIns_NAIC.MetaText1) IS NOT NULL THEN MIN(AjxIns_NAIC.MetaText1) ELSE
+                MIN(AjxInsMax_NAIC.Rating)
+            END) as NAICInsRating
+            
+            ,(CASE WHEN MIN(AjxIns_RGAPlaceholder.MetaText1) IS NOT NULL THEN MIN(AjxIns_RGAPlaceholder.MetaText1) ELSE
+                MIN(AjxInsMax_RGAPlaceholder.Rating)
+            END) as RGAPlaceholderInsRating
+            
+            --egan jones Company rating expirationdate
+            ,(CASE WHEN MIN(AjxCmp_EganJones.MetaDate2) IS NOT NULL THEN MIN(AjxCmp_EganJones.MetaDate2) ELSE
+                MIN(AjxCmpMax_EganJones.EndDate) 
+            END) as EganJonesCmpExpirationDate
+            
+            ,'NA' AS PERCENT_OWNERSHIP
+            
+            --helper columns (for frontscript below)
+            ,MIN(A.CODE)        __OPT_CODE
+            
+            ,CONVERT(VARCHAR, FORMAT(MIN(INVOP.CloseDate),'MM/dd/yy'), 1) AS INVESTMENT_DATE
+            
+            ,CASE 
+                      WHEN MIN(InvOp.CloseDate) <= " & DML(%DATE) & " AND MIN(InvIns.UserDate2) > " & DML(%DATE) & " THEN 'Active'
+                      WHEN MIN(InvOp.CloseDate) <= " & DML(%DATE) & " AND MIN(InvIns.UserDate2) IS NULL THEN 'Active'
+                      --WHEN MIN(InvOp.CloseDate) <= " & DML(%DATE) & " AND (ISNULL(MIN(InvIns.UserDate2), 1) = 1) THEN 'Active'
+                      ELSE 'Exited'
+                  END as FACILITY_STATUS
+            
+            FROM VCINVESTMENTINS INVINS 
+           
+            JOIN VCINVESTMENT VCINV         
+              ON VCINV.IQID = INVINS.INVESTMENT 
+                AND VCINV.IQDELETED=0
+                
+            LEFT JOIN (SELECT  ACCOUNT, MAX(USERTEXT7) USERTEXT7, MAX(USERDATE5) USERDATE5, MAX(USERTEXT30) USERTEXT30 
+                       FROM VCPROJECT VCP1 
+                       WHERE VCP1.IQDELETED=0 
+                           AND VCP1.WORKFLOW IN(SELECT IQID 
+                                                  FROM ADMWORKFLOW 
+                                                  WHERE LIBELLE IN('RGA Direct Mezzanine') AND IQDELETED=0)  
+                           GROUP BY ACCOUNT                  
+                    ) VCP ON VCP.ACCOUNT = VCINV.ACCOUNT 
+						
+			  
+            LEFT JOIN SFAACCOUNT SFA 
+                ON SFA.IQID = VCP.USERTEXT7  
+              AND SFA.IQDELETED=0
+              
+            LEFT JOIN SFAACCOUNT SFA_CMP 
+                ON SFA_CMP.IQID = VCINV.ACCOUNT   
+              AND SFA_CMP.IQDELETED=0   
+           
+			
+            LEFT JOIN SFASITE SFAS
+			 ON SFA_CMP.MainSite = SFAS.IQID
+			 AND SFAS.IQDeleted = 0
+
+			LEFT JOIN VCSTATE STATES
+            ON STATES.CODE = SFAS.STATE AND STATES.FILTER NOT LIKE '00000%'
+             
+            LEFT JOIN SFACOUNTRY COUNTRIES
+            ON SFAS.COUNTRY = COUNTRIES.CODE AND COUNTRIES.FILTER NOT LIKE '00000%'
+            
+            
+            
+            --PIK Rate
+              LEFT JOIN (SELECT 
+                     RATEPIK.INVESTMENTINS
+                    --,RATEPIK.FIRSTDATE                     
+                    --,RATEPIK.LASTDATE
+                    ,MAX(RATEPIK.BASERATE) as BASERATE
+                FROM VCINVESTINSRATE RATEPIK
+                WHERE RATEPIK.KIND = (SELECT CODE FROM VCINVINSRATKIND WHERE DESCR = 'Loan Capitalized Interests')
+                AND RATEPIK.FIRSTDATE <= " & DML(%DATE) & "
+                AND RATEPIK.LASTDATE > " & DML(%DATE) & "
+                GROUP BY RATEPIK.INVESTMENTINS
+                ) RATE
+                
+                ON RATE.INVESTMENTINS =  INVINS.ACCOUNTINS
+				  
+                LEFT JOIN 
+                 (SELECT 
+                   RATEPIK_outer.INVESTMENTINS
+                  ,MAX(RATEPIK_outer.BASERATE) as BASERATE
+                   FROM VCINVESTINSRATE RATEPIK_outer
+                   WHERE RATEPIK_outer.KIND = (SELECT CODE FROM VCINVINSRATKIND WHERE DESCR = 'Loan Capitalized Interests')
+                   AND RATEPIK_outer.LASTDATE = (
+                       SELECT MAX(RATEPIK_inner.LASTDATE) FROM VCINVESTINSRATE RATEPIK_inner 
+                           WHERE RATEPIK_inner.INVESTMENTINS = RATEPIK_outer.INVESTMENTINS
+                   ) 
+                 GROUP BY RATEPIK_outer.INVESTMENTINS
+                 ) LSTRATEPIK
+             
+             ON LSTRATEPIK.INVESTMENTINS = INVINS.ACCOUNTINS 
+            
+			--Fixed Float
+              LEFT JOIN (SELECT 
+							 RATE.INVESTMENTINS
+							--,RATE.FIRSTDATE                     
+							--,RATE.LASTDATE
+							,MAX(RATE.BASERATE) as BASERATE
+							--,BNMK.Libelle
+							,MAX(CASE 
+                                WHEN BNMK.Libelle IS NOT NULL 
+                                    THEN 1 
+                                WHEN RATE.INVESTMENTINS IS NULL
+                                    THEN NULL
+                                ELSE 0 END) as Floating
+						FROM VCINVESTINSRATE RATE
+						LEFT JOIN VCBENCHMARK BNMK 
+						    ON BNMK.IQID=RATE.RATESTABLE
+                            AND RATE.KIND = (SELECT CODE FROM VCINVINSRATKIND WHERE DESCR = 'Loan Cash Interests' AND FILTER NOT LIKE '%000%')    --02/23/2022 MB
+						--WHERE RATE.KIND = (SELECT CODE FROM VCINVINSRATKIND WHERE DESCR = 'Loan Cash Interests' AND FILTER NOT LIKE '%000%')    
+                        WHERE RATE.FIRSTDATE <= " & DML(%DATE) & " 
+                            AND RATE.LASTDATE > " & DML(%DATE) & "
+                        GROUP BY RATE.INVESTMENTINS
+                ) FIXED_FLOAT_1
+                    
+                ON FIXED_FLOAT_1.INVESTMENTINS =  INVINS.ACCOUNTINS
+				  
+                LEFT JOIN (SELECT 
+                                outer_RATE.InvestmentIns
+                                ,MAX(CASE 
+                                    WHEN BNMK.Libelle IS NOT NULL 
+                                        THEN 1 
+                                    WHEN outer_RATE.INVESTMENTINS IS NULL
+                                        THEN NULL        --02/23/2022 MB
+                                    ELSE 0 END) as Floating
+                            FROM VCINVESTINSRATE outer_RATE
+                            LEFT JOIN VCBENCHMARK BNMK 
+                                ON BNMK.IQID=outer_RATE.RATESTABLE
+                                AND outer_RATE.KIND = (SELECT CODE FROM VCINVINSRATKIND WHERE DESCR = 'Loan Cash Interests' AND FILTER NOT LIKE '%000%')    --02/23/2022 MB 
+                            WHERE --outer_RATE.KIND = (SELECT CODE FROM VCINVINSRATKIND WHERE DESCR = 'Loan Cash Interests' AND FILTER NOT LIKE '%000%')
+                            --this will get the last rate date quicker than RANK()
+                                outer_RATE.LastDate = (SELECT MAX(inner_RATE.LastDate) FROM VCINVESTINSRATE inner_RATE 
+                                                            WHERE inner_RATE.InvestmentIns = outer_RATE.InvestmentIns 
+                                                            --AND inner_RATE.KIND = (SELECT CODE FROM VCINVINSRATKIND WHERE DESCR = 'Loan Cash Interests' AND FILTER NOT LIKE '%000%')    --02/23/2022 MB commented out
+                                                        )
+                                                        
+                         GROUP BY outer_RATE.InvestmentIns
+                         ) FIXED_FLOAT_2
+             
+             ON FIXED_FLOAT_2.INVESTMENTINS = INVINS.ACCOUNTINS
+
+             --Egan jones and naic company rating and PD & E rating
+            LEFT JOIN (SELECT Company as Company, MIN(MetaText1) as MetaText1, MIN(MetaDate2) as MetaDate2 FROM AJXDYNTABLE WHERE
+                IQDeleted = 0
+				AND MetaDate1 <= " & DML(%DATE) & "
+				AND MetaDate2 > " & DML(%DATE) & "
+                AND MetaText2 = '4'
+                AND CLASS1 = 'Ratings'
+                GROUP BY Company
+            ) AjxCmp_EganJones
+				ON VCINV.Account = AjxCmp_EganJones.Company
+				
+            LEFT JOIN (SELECT MIN(MetaText1) as MetaText1, Company as Company 
+                FROM AJXDYNTABLE
+                WHERE IQDeleted = 0
+                AND MetaDate1 <= " & DML(%DATE) & "
+                AND MetaDate2 > " & DML(%DATE) & "
+                AND MetaText2 = '2'
+                AND CLASS1 = 'Ratings'
+                GROUP BY Company
+            )  AjxCmp_NAIC
+            ON VCINV.Account = AjxCmp_NAIC.Company
+              
+            LEFT JOIN (SELECT MIN(MetaText1) as MetaText1, MIN(MetaText5) as MetaText5, Company as Company FROM AJXDYNTABLE
+				WHERE IQDeleted = 0
+				AND MetaDate1 <= " & DML(%DATE) & "
+				AND MetaDate2 > " & DML(%DATE) & "
+                AND MetaText2 = '5'
+                AND CLASS1 = 'Ratings'
+                GROUP BY Company
+            )  AjxCmp_PDE 
+            ON VCINV.Account = AjxCmp_PDE.Company
+
+            --placeholder ratings for company, date specified
+            LEFT JOIN (SELECT MIN(MetaText1) as MetaText1, MIN(MetaText5) as MetaText5, Company as Company FROM AJXDYNTABLE
+				WHERE IQDeleted = 0
+				AND MetaDate1 <= " & DML(%DATE) & "
+				AND MetaDate2 > " & DML(%DATE) & "
+                AND MetaText2 = '10'
+                AND CLASS1 = 'Ratings'
+                GROUP BY Company
+            )  AjxCmp_RGAPlaceholder 
+            ON VCINV.Account = AjxCmp_RGAPlaceholder.Company
+			
+            --max company ratings...
+			LEFT JOIN (
+                SELECT Company, MIN(MetaText1) as Rating, MIN(MetaDate2) as EndDate FROM AJXDYNTABLE outerAJX WHERE
+                 IQDeleted = 0
+                AND MetaText2 = '4'
+                AND MetaDate2 = (SELECT MAX(MetaDate2) FROM AJXDYNTABLE innerAJX WHERE innerAJX.Company = outerAJX.Company AND IQDeleted = 0 AND MetaText2='4' AND innerAJX.CLASS1='Ratings')
+                AND CLASS1 = 'Ratings'
+                GROUP BY Company
+            ) AjxCmpMax_EganJones
+              ON VCINV.Account = AjxCmpMax_EganJones.Company
+            
+            LEFT JOIN (
+                SELECT Company, MIN(MetaText1) as Rating FROM AJXDYNTABLE outerAJX WHERE
+                 IQDeleted = 0
+                AND MetaText2 = '2'
+                AND MetaDate2 = (SELECT MAX(MetaDate2) FROM AJXDYNTABLE innerAJX WHERE innerAJX.Company = outerAJX.Company AND IQDeleted = 0 AND MetaText2='2' AND innerAJX.CLASS1='Ratings')
+                AND CLASS1 = 'Ratings'
+                GROUP BY Company
+            ) AjxCmpMax_NAIC
+              ON VCINV.Account = AjxCmpMax_NAIC.Company
+              
+           
+            LEFT JOIN (
+                SELECT Company, MIN(MetaText1) as Rating, MIN(MetaText5) as Score FROM AJXDYNTABLE outerAJX WHERE
+                 IQDeleted = 0
+                AND MetaText2 = '5'
+                AND MetaDate2 = (SELECT MAX(MetaDate2) FROM AJXDYNTABLE innerAJX WHERE innerAJX.Company = outerAJX.Company AND IQDeleted = 0 AND MetaText2='5' AND innerAJX.CLASS1='Ratings')
+                AND CLASS1 = 'Ratings'
+                GROUP BY Company
+            ) AjxCmpMax_PDE
+            ON VCINV.Account = AjxCmpMax_PDE.Company
+			
+            --placeholder ratings for company, last dated rating
+            LEFT JOIN (
+                SELECT Company, MIN(MetaText1) as Rating, MIN(MetaText5) as Score FROM AJXDYNTABLE outerAJX WHERE
+                 IQDeleted = 0
+                AND MetaText2 = '10'
+                AND MetaDate2 = (SELECT MAX(MetaDate2) FROM AJXDYNTABLE innerAJX WHERE innerAJX.Company = outerAJX.Company AND IQDeleted = 0 AND MetaText2='10' AND innerAJX.CLASS1='Ratings')
+                AND CLASS1 = 'Ratings'
+                GROUP BY Company
+            ) AjxCmpMax_RGAPlaceholder
+            ON VCINV.Account = AjxCmpMax_RGAPlaceholder.Company
+            
+			--Egan Jones and NAIC Instrument Rating and PD & E rating
+			LEFT JOIN (SELECT MIN(MetaText1) as MetaText1, InvestmentIns FROM AJXDYNTABLE WHERE
+                IQDeleted = 0
+				 AND MetaDate1 <= " & DML(%DATE) & "
+				 AND MetaDate2 > " & DML(%DATE) & "
+                 AND MetaText2 = '4'
+                 AND CLASS1='Ratings'
+                 GROUP BY InvestmentIns
+             ) AjxIns_EganJones
+             ON InvIns.AccountIns = AjxIns_EganJones.InvestmentIns
+				 
+            LEFT JOIN (SELECT MIN(MetaText1) as MetaText1, InvestmentIns FROM AJXDYNTABLE
+				
+				 WHERE IQDeleted = 0
+				 AND MetaDate1 <= " & DML(%DATE) & "
+				 AND MetaDate2 > " & DML(%DATE) & "
+                 AND MetaText2 = '2' 
+                 AND CLASS1 = 'Ratings'
+                 GROUP BY InvestmentIns
+            ) AjxIns_NAIC
+            ON InvIns.AccountIns = AjxIns_NAIC.InvestmentIns
+              
+              
+             --placeholder ratings for instrument, date specified
+            LEFT JOIN (SELECT MIN(MetaText1) as MetaText1, InvestmentIns FROM AJXDYNTABLE
+				
+				 WHERE IQDeleted = 0
+				 AND MetaDate1 <= " & DML(%DATE) & "
+				 AND MetaDate2 > " & DML(%DATE) & "
+                 AND MetaText2 = '10' 
+                 AND CLASS1 = 'Ratings'
+                 GROUP BY InvestmentIns
+            ) AjxIns_RGAPlaceholder
+            ON InvIns.AccountIns = AjxIns_RGAPlaceholder.InvestmentIns
+              
+            LEFT JOIN (
+                SELECT InvestmentIns, MIN(MetaText1) as Rating FROM AJXDYNTABLE outerAJX WHERE
+                 IQDeleted = 0
+                AND MetaText2 = '4'
+                AND MetaDate2 = (SELECT MAX(MetaDate2) FROM AJXDYNTABLE innerAJX WHERE innerAJX.InvestmentIns = outerAJX.InvestmentIns AND IQDeleted = 0 AND MetaText2='4' AND innerAJX.CLASS1='Ratings')
+                AND CLASS1 = 'Ratings'
+                GROUP BY InvestmentIns
+            ) AjxInsMax_EganJones
+              ON InvIns.AccountIns = AjxInsMax_EganJones.InvestmentIns
+
+            LEFT JOIN (
+                SELECT InvestmentIns, MIN(MetaText1) as Rating FROM AJXDYNTABLE outerAJX WHERE
+                 IQDeleted = 0
+                AND MetaText2 = '2'
+                AND MetaDate2 = (SELECT MAX(MetaDate2) FROM AJXDYNTABLE innerAJX WHERE innerAJX.InvestmentIns = outerAJX.InvestmentIns AND IQDeleted = 0 AND MetaText2='2' AND innerAJX.CLASS1='Ratings')
+                AND CLASS1 = 'Ratings'
+                GROUP BY InvestmentIns
+            ) AjxInsMax_NAIC
+              ON InvIns.AccountIns = AjxInsMax_NAIC.InvestmentIns
+              
+              --placeholder ratings for instrument, lasted date rating
+            LEFT JOIN (
+                SELECT InvestmentIns, MIN(MetaText1) as Rating FROM AJXDYNTABLE outerAJX WHERE
+                 IQDeleted = 0
+                AND MetaText2 = '10'
+                AND MetaDate2 = (SELECT MAX(MetaDate2) FROM AJXDYNTABLE innerAJX WHERE innerAJX.InvestmentIns = outerAJX.InvestmentIns AND IQDeleted = 0 AND MetaText2='10' AND innerAJX.CLASS1='Ratings')
+                AND CLASS1 = 'Ratings'
+                GROUP BY InvestmentIns
+            ) AjxInsMax_RGAPlaceholder
+              ON InvIns.AccountIns = AjxInsMax_RGAPlaceholder.InvestmentIns 
+              
+           
+            
+                
+             LEFT JOIN 
+             (
+                 SELECT 
+                       InvestmentIns, MIN(CloseDate) as CloseDate, SUM(Amount2) as Amount2
+                 FROM VCINVESTMENTOP
+                 WHERE TypeInvestOp IN  ('LN02', 'LN03', 'LN06', 'LN70', 'LN71', 'LN81', 'LN82')
+                 AND IQDeleted = 0
+                 GROUP BY InvestmentIns
+             ) INVOP
+             ON INVINS.IQID = INVOP.InvestmentIns     
+                 
+                 
+			JOIN VCPORTFOLIOASSET VCPRTAST     
+			ON VCPRTAST.INVESTMENT = VCINV.IQID 
+				AND  VCPRTAST.IQDELETED=0 
+                  
+			JOIN VCPORTFOLIO VCPRT            
+			ON VCPRT.IQID = VCPRTAST.PORTFOLIO 
+				AND VCPRT.PORTFOLIO = 'PDE - Direct Mezzanine'  
+				AND  VCPRT.IQDELETED=0 
+                  
+			/*JOIN VCINVESTMENTOP A              
+			ON A.INVESTMENTINS=INVINS.IQID 
+                
+			JOIN VCINVESTOPTYPE OPT 
+			ON OPT.CODE = A.TYPEINVESTOP 
+				AND (    
+                OPT.CODE = 'LN01' --commitments
+                    or OPT.CODE = 'LN03'      -- 'LN - Funding (w/o commitment)' 
+					or OPT.CODE = 'LN02'  -- 'LN - Funding (following commitment)'
+					or OPT.CODE = 'LN70'  -- 'LN - Transfer in'
+					or OPT.CODE = 'LN71'  -- 'LN - Transfer out'
+					or OPT.CODE = 'LN81'  -- 'LN - Conversion in 
+					or OPT.CODE = 'LN82'  -- 'LN - Conversion out										 
+					) 
+            */
+            JOIN
+                (
+                SELECT 
+                     OuterOp.InvestmentIns as InvestmentIns
+                    ,OuterOp.IQRegionID as IQRegionID
+                    ,OuterOp.CloseDate as CloseDate
+                    ,OuterOp.TypeInvestOp as Code
+                    ,OuterOp.Amount2 as Amount2
+                    ,OuterOp.Commitment2 as Commitment2
+                    ,OuterOp.Valuation2 as Valuation2
+                FROM VCINVESTMENTOP OuterOp                 
+			    WHERE OuterOp.IQDELETED=0
+                AND OuterOp.DRAFT=0
+                AND (OuterOp.CANCELLED=0 OR OuterOp.CANCELLED IS NULL)
+				AND OuterOp.CLOSEDATE <=  " & DML(%DATE) & "  
+                AND (OuterOp.TypeInvestOp IN ('LN01','LN03','LN02','LN70','LN71','LN81','LN82')
+                OR 
+                    (
+                    OuterOp.TypeInvestOp = 'LN30'
+                    AND OuterOp.CloseDate = 
+                            (
+                            SELECT 
+                                MAX(CloseDate) 
+                            FROM VCINVESTMENTOP InnerOp
+                            WHERE InnerOp.TypeInvestOp = 'LN30' 
+                            AND InnerOp.CloseDate <=  " & DML(%DATE) & "
+                            AND InnerOp.InvestmentIns = OuterOp.InvestmentIns
+                            )
+                       ))
+                   
+                )A
+                ON A.INVESTMENTINS = INVINS.IQID    --001
+			
+            JOIN ADMROLE REG                 
+			ON VCINV.IQREGIONID = REG.IQID 
+				AND REG.IQDELETED = 0 
+				AND A.IQREGIONID = REG.IQID 
+				AND REG.NAME = 'Private Debt & Equity'
+            
+            
+			WHERE 
+			INVINS.IQDELETED=0 
+				/*AND A.IQDELETED=0
+                AND A.DRAFT=0
+                AND (A.CANCELLED=0 OR A.CANCELLED IS NULL)
+				AND A.CLOSEDATE <=  " & DML(%DATE) & "
+			    AND ??FILTER*/        --001
+		    GROUP BY  INVINS.ACCOUNTINS 
+
+			)
+    --------------------------------------------------------------------------------------------------------------------------------------------------
+    
+            SELECT  
+           
+				 MIN(INVESTMENTS.INVINS_ACCOUNTINS)			AS INVINS_ACCOUNTINS    
+                ,MIN(INVESTMENTS.ADMINISTRATIVE_AGENT)      AS ADMINISTRATIVE_AGENT
+				,MIN(INVESTMENTS.Cusip)						AS Cusip
+                ,MIN(INVESTMENTS.RGA_CUSIP)                 AS RGA_CUSIP
+                ,MIN(INVESTMENTS.INVESTMENT_AMOUNT)         AS INVESTMENT
+                
+
+                
+				,MIN(INVESTMENTS.FACILITY)				    AS FACILITY
+                ,MIN(INVESTMENTS.INV_YEAR)					AS INV_YEAR
+                ,MIN(INVESTMENTS.PORTFOLIO)					AS PORTFOLIO
+				,MIN(INVESTMENTS.short_code)				AS short_code
+                ,MIN(INVESTMENTS.COMPANY_DESCRIPTION)       AS COMPANY_DESCRIPTION        
+                ,MIN(INVESTMENTS.UNITRANCHE_MEZZ)			AS UNITRANCHE_MEZZ	
+                ,MIN(SFASPONSOR.NAME)						AS SPONSOR
+				,MIN(INVESTMENTS.SENIORITY)					AS SENIORITY		
+                ,MIN(INVESTMENTS.COMPANY_LEGAL_NAME)        AS 'Company Legal Name'
+				,MIN(INVESTMENTS.INST_CURR)					AS INST_CURR
+				,MIN(INVESTMENTS.HQ_CITY)					AS HQ_CITY
+                ,MIN(INVESTMENTS.HQ_STATE)					AS HQ_STATE
+                ,MIN(INVESTMENTS.HQ_COUNTRY)				AS HQ_COUNTRY
+				,MIN(INVESTMENTS.Collateral)				AS Collateral
+                ,CASE WHEN CHARINDEX(' - ', MIN(INDUSTRY.DESCR)) > 0 
+                    THEN  RTRIM(LTRIM(SUBSTRING(MIN(INDUSTRY.DESCR), CHARINDEX(' - ', MIN(INDUSTRY.DESCR))+3, LEN(MIN(INDUSTRY.DESCR))))) 
+                    ELSE  MIN(INDUSTRY.DESCR) 
+                END        AS INDUSTRY
+                ,CASE WHEN CHARINDEX(' - ', MIN(INDSUB.DESCR)) > 0 
+                    THEN RTRIM(LTRIM(SUBSTRING(MIN(INDSUB.DESCR), CHARINDEX(' - ', MIN(INDSUB.DESCR))+3, LEN(MIN(INDSUB.DESCR))))) 
+                    ELSE MIN(INDSUB.DESCR) 
+                END               AS SUBINDUSTRY   
+                
+                ,MIN(INVESTMENTS.PIK)                            AS PIK
+                
+                ,CASE WHEN MIN(INVESTMENTS.Fixed_Floating) = 'Floating' 
+                        THEN MIN(CASH_COUPON_OPS.RATE1) 
+                      WHEN MIN(INVESTMENTS.Fixed_Floating) = 'Fixed' 
+                        THEN 
+                            CASE 
+                                WHEN MIN(CASH_COUPON_INSRATE.BASERATE) IS NOT NULL 
+                                    THEN MIN(CASH_COUPON_INSRATE.BASERATE)/100.00 
+                                ELSE MIN(LAST_CASH_COUPON_INSRATE.BASERATE)/100.00
+                             END    
+                END AS CASH_COUPON
+
+               ,CASE 
+                   WHEN MIN(INVESTMENTS.Fixed_Floating) = 'Floating' 
+                       THEN CASE WHEN (COALESCE(MIN(CASH_COUPON_INSRATE.RATE),0)/100.00) = 0
+                            THEN (COALESCE(MIN(LAST_CASH_COUPON_INSRATE.RATE),0)/100.00) 
+                            ELSE (COALESCE(MIN(CASH_COUPON_INSRATE.RATE),0)/100.00)
+                        END
+                            
+                    WHEN MIN(INVESTMENTS.Fixed_Floating) = 'Fixed' THEN NULL
+                END AS SPREAD
+                
+                --check if the spread is null, if it is then get the last max spread to work off of, if not then check  floor if its null if it is then it's NA else floor - spread
+                ,CASE WHEN MIN(INVESTMENTS.Fixed_Floating) = 'Floating'
+                
+                    THEN CASE WHEN MIN(CASH_COUPON_INSRATE.RATE) IS NOT NULL
+                            THEN 
+                                CASE WHEN MIN(CASH_COUPON_INSRATE.RATEFLOOR) IS NULL THEN NULL
+                                    ELSE ((MIN(CASH_COUPON_INSRATE.RATEFLOOR) - (COALESCE(MIN(CASH_COUPON_INSRATE.RATE),0))))
+                                END 
+                            ELSE  
+                               CASE WHEN MIN(LAST_CASH_COUPON_INSRATE.RATEFLOOR) IS NULL THEN NULL
+                                   ELSE ((MIN(LAST_CASH_COUPON_INSRATE.RATEFLOOR) - (COALESCE(MIN(LAST_CASH_COUPON_INSRATE.RATE),0))))
+                               END
+                         END
+                    --fixed should be a blank/null     
+                    WHEN MIN(INVESTMENTS.Fixed_Floating) = 'Fixed' THEN NULL      
+                END AS FLOOR
+                
+                 --check if the spread is null, if it is then get the last max spread to work off of, if not then check  floor if its null if it is then it's NA else floor - spread
+                ,CASE WHEN MIN(INVESTMENTS.Fixed_Floating) = 'Floating'
+                
+                    THEN CASE WHEN MIN(CASH_COUPON_INSRATE.RATE) IS NOT NULL
+                            THEN 
+                                CASE WHEN MIN(CASH_COUPON_INSRATE.RATECAP) IS NULL THEN NULL
+                                    ELSE (MIN(CASH_COUPON_INSRATE.RATECAP) - (COALESCE(MIN(CASH_COUPON_INSRATE.RATE),0)))
+                                END 
+                            ELSE  
+                               CASE WHEN MIN(LAST_CASH_COUPON_INSRATE.RATECAP) IS NULL THEN NULL 
+                                   ELSE ((MIN(LAST_CASH_COUPON_INSRATE.RATECAP) - (COALESCE(MIN(LAST_CASH_COUPON_INSRATE.RATE),0))))
+                               END
+                         END
+                    --fixed should be a blank/null     
+                    WHEN MIN(INVESTMENTS.Fixed_Floating) = 'Fixed' THEN NULL      
+                END AS CAP
+                
+                
+                ,MIN(INVESTMENTS.LEGAL_STRUCTURE)             AS LEGAL_STRUCTURE
+               
+               ,MIN(INVESTMENTS.COMMITMENT)                    AS COMMITMENT
+                ,MIN(INVESTMENTS.PDE_ROLE)                    AS PDE_ROLE
+                ,MIN(INVESTMENTS.AMORTIZATION)                AS AMORTIZATION
+                ,MIN(INVESTMENTS.TOTAL_FACILITY_SIZE)         AS TOTAL_FACILITY_SIZE
+                ,CASE MIN(VCP_DEAL.BOARD_RIGHTS)
+                    WHEN '1' THEN 'Voting Member'
+                    WHEN '2' THEN 'Non-Voting Member'
+                    WHEN '3' THEN 'Observation Rights'
+                    WHEN '4' THEN 'None'				
+                 END AS BOARD_RIGHTS 
+                ,MIN(INVESTMENTS.DEAL_LEAD) AS DEAL_LEAD
+                ,MIN(INVESTMENTS.DEAL_SECONDARY) AS DEAL_SECONDARY
+                ,MIN(INVESTMENTS.DEAL_TERTIARY) AS DEAL_TERTIARY
+                
+               
+                ,COALESCE(CONVERT(VARCHAR, FORMAT(MIN(MDATE.LastInterestDate),'MM/dd/yy'), 1),'NA') AS MATURITY_DATE
+
+                /*
+                , CASE 
+                      WHEN MIN(InvOp.CloseDate) <= " & DML(%DATE) & " AND MIN(INVESTMENTS.UserDate2) > " & DML(%DATE) & " THEN 'Active'
+                      WHEN MIN(InvOp.CloseDate) <= " & DML(%DATE) & " AND MIN(INVESTMENTS.UserDate2) IS NULL THEN 'Active'
+                      --WHEN MIN(InvOp.CloseDate) <= " & DML(%DATE) & " AND (ISNULL(MIN(INVESTMENTS.UserDate2), 1) = 1) THEN 'Active'
+                      ELSE 'Exited'
+                  END as FACILITY_STATUS
+                  */
+                 ,MIN(INVESTMENTS.FACILITY_STATUS) AS FACILITY_STATUS
+                
+                ,CONVERT(VARCHAR, FORMAT(MIN(INVESTMENTS.UserDate2),'MM/dd/yy'), 1) AS EXIT_DATE
+                
+                --NA is COALESCE() in the upper query for this field
+				,MIN(INVESTMENTS.FIXED_FLOATING) AS FIXED_FLOATING
+
+                ,MIN(INVESTMENTS.EganJonesCmpRating)	AS EGAN_RATING
+                ,MIN(INVESTMENTS.NAICCmpRating)			AS NAIC_RATING
+                ,MIN(INVESTMENTS.PDERating)             AS PDE_RATING 
+                ,MIN(INVESTMENTS.RGAPlaceholderCmpRating) AS RGA_PLACEHOLDER_RATING
+    
+				,MIN(INVESTMENTS.EganJonesInsRating)	AS EGAN_INS_RATING
+				,MIN(INVESTMENTS.NAICInsRating)			AS NAIC_INS_RATING
+                ,MIN(INVESTMENTS.RGAPlaceholderInsRating) AS RGA_PLACEHOLDER_INS_RATING
+			                   
+                ,MIN(INVESTMENTS.PDEScore)             AS PDE_SCORE         
+                
+                --,MIN(INVESTMENTS.EganJonesCmpExpirationDate) AS EGAN_CMP_RATING_EXPIRATION_DATE
+                ,CONVERT(VARCHAR, FORMAT(MIN(INVESTMENTS.EganJonesCmpExpirationDate),'MM/dd/yy'), 1) AS EGAN_CMP_RATING_EXPIRATION_DATE
+                
+                --,CONVERT(varchar, MIN(INVOP.CloseDate), 1) as INVESTMENT_DATE  
+				/*,CONVERT(VARCHAR, FORMAT(MIN(INVOP.CloseDate),'MM/dd/yy'), 1) AS INVESTMENT_DATE*/
+                ,MIN(INVESTMENTS.INVESTMENT_DATE)
+
+                
+				,MIN(INVESTMENTS.COMPANY) as COMPANY          
+                ,MIN(INVESTMENTS.SFA_CMP_IQID) AS COMPANY_ID     
+                ,MIN(INVESTMENTS.PERCENT_OWNERSHIP) AS PERCENT_OWNERSHIP
+                ,MIN(INVESTMENTS.Valuation) AS VALUATION    --001
+                
+                --helper columns for frontscript below
+                ,MIN(INVESTMENTS.__OPT_CODE) as __OPT_CODE
+            FROM INVESTMENTS
+             
+            LEFT JOIN AJXCRMCOMPANYINDUSTRYFOCUS AJXIND
+                 ON INVESTMENTS.SFA_CMP_IQID = AJXIND.CompanyId
+                 AND AJXIND.IQDeleted = 0 
+             
+            LEFT JOIN VCINDUSTRY INDSUB
+                ON INVESTMENTS.SFA_CMP_INDUSTRY = INDSUB.CODE
+                AND INDSUB.FILTER NOT LIKE '00000%'
+           
+            LEFT JOIN VCINDUSTRY INDUSTRY
+                ON INDUSTRY.CODE = AJXIND.INDUSTRYCODE
+                AND INDUSTRY.FILTER NOT LIKE '00000%' 
+             
+             --Cash Coupon, Spread
+            --loan cash interests only
+            LEFT JOIN (
+                SELECT MIN(INS.ACCOUNTINS) AS ACCOUNTINS, MIN(OP.RATE1) AS RATE1 
+                FROM VCINVESTMENTOP OP
+                
+                LEFT JOIN VCINVESTMENTINS INS 
+                ON INS.IQID = OP.INVESTMENTINS
+                AND INS.IQDELETED = 0
+                
+                WHERE 
+                
+                OP.CLOSEDATE = 
+                (SELECT MIN(inner_OP.CLOSEDATE) FROM VCINVESTMENTOP inner_OP 
+                    WHERE 
+                    inner_OP.CLOSEDATE >= " & DML(%DATE) & "
+                    AND inner_OP.IQDELETED = 0
+                    AND (inner_OP.CANCELLED = 0 OR inner_OP.CANCELLED IS NULL)
+                    --AND inner_OP.DRAFT = 0
+                    AND OP.INVESTMENTINS = inner_OP.INVESTMENTINS
+                    AND inner_OP.RATE1 IS NOT NULL
+                ) 
+                
+                AND OP.IQDELETED = 0
+                AND (OP.CANCELLED = 0 OR OP.CANCELLED IS NULL)
+                --AND OP.DRAFT = 0
+                GROUP BY INS.ACCOUNTINS
+
+            ) CASH_COUPON_OPS ON
+            CASH_COUPON_OPS.ACCOUNTINS = INVESTMENTS.INVINS_ACCOUNTINS
+            
+            
+            LEFT JOIN 
+            (
+            SELECT
+                 INVESTMENTINS
+                ,MAX(RATE) as RATE
+                ,MAX(RATECAP) as RATECAP
+                ,MAX(RATEFLOOR) as RATEFLOOR
+                ,MAX(BASERATE) as BASERATE
+            FROM VCINVESTINSRATE
+            WHERE FIRSTDATE <= " & DML(%DATE) & " 
+            AND LASTDATE > " & DML(%DATE) & "
+            AND KIND = 'LNCASH'
+            GROUP BY INVESTMENTINS
+            )CASH_COUPON_INSRATE 
+            ON CASH_COUPON_INSRATE.INVESTMENTINS = INVESTMENTS.INVINS_ACCOUNTINS
+
+
+            LEFT JOIN 
+            (
+            SELECT
+                 LAST_CASH_COUPON_INSRATE_outer.INVESTMENTINS
+                ,MAX(LAST_CASH_COUPON_INSRATE_outer.RATE) as RATE
+                ,MAX(LAST_CASH_COUPON_INSRATE_outer.RATECAP) as RATECAP
+                ,MAX(LAST_CASH_COUPON_INSRATE_outer.RATEFLOOR) as RATEFLOOR
+                ,MAX(LAST_CASH_COUPON_INSRATE_outer.BASERATE) as BASERATE
+            FROM VCINVESTINSRATE LAST_CASH_COUPON_INSRATE_outer 
+                WHERE LAST_CASH_COUPON_INSRATE_outer.FirstDate = (
+                    SELECT MAX(inner_INSRATE.FirstDate) FROM VCINVESTINSRATE inner_INSRATE 
+                    WHERE inner_INSRATE.INVESTMENTINS = LAST_CASH_COUPON_INSRATE_outer.INVESTMENTINS
+                            AND LAST_CASH_COUPON_INSRATE_outer.KIND = 'LNCASH' 
+                )  
+                AND LAST_CASH_COUPON_INSRATE_outer.KIND = 'LNCASH'
+                GROUP BY LAST_CASH_COUPON_INSRATE_outer.INVESTMENTINS
+            ) LAST_CASH_COUPON_INSRATE
+            
+            ON LAST_CASH_COUPON_INSRATE.INVESTMENTINS = INVESTMENTS.INVINS_ACCOUNTINS
+
+		   --INVESTMENT STATUS
+           --Investment Date
+           --TODO: label amount2
+           /*
+           LEFT JOIN 
+             (
+                 SELECT 
+                       InvestmentIns, MIN(CloseDate) as CloseDate, SUM(Amount2) as Amount2
+                 FROM VCINVESTMENTOP
+                 WHERE TypeInvestOp IN  ('LN02', 'LN03', 'LN06', 'LN70', 'LN71', 'LN81', 'LN82')
+                 AND IQDeleted = 0
+                 GROUP BY InvestmentIns
+             ) INVOP
+             ON INVESTMENTS.INVINS_IQID = INVOP.InvestmentIns
+             */
+           
+		   --this is the other half...
+
+           --Board Rights, VCPROJECT (Deal screen) Investment summary...
+           LEFT JOIN 
+           (
+               SELECT VCP1.ACCOUNT
+                   ,VCP1.IQID
+                   ,COALESCE(VCP2.UserText30, VCP1.UserText30) AS BOARD_RIGHTS
+                   ,COALESCE(VCP2.UserText24, VCP1.UserText24) AS ROLE_IN_TRANSACTION
+                   ,COALESCE(VCP2.UserText7, VCP1.UserText7) AS SPONSOR
+               FROM VCPROJECT VCP1
+               LEFT JOIN VCPROJECT VCP2
+                   --LINKED_DEAL
+                   ON VCP1.UserText38 = VCP2.IQID
+                   AND VCP2.IQDeleted=0
+               WHERE VCP1.IQDeleted=0
+           ) VCP_DEAL
+           ON INVESTMENTS.VCINV_ACCOUNT = VCP_DEAL.ACCOUNT
+             
+             
+             
+           --SPONSOR
+           LEFT JOIN SFAACCOUNT SFASPONSOR
+             ON VCP_DEAL.SPONSOR = SFASPONSOR.IQID
+             AND SFASPONSOR.IQDeleted = 0
+
+          --Maturity Date    
+          LEFT JOIN (SELECT MAX(LASTINTERESTDATE) AS LASTINTERESTDATE, INVESTMENTINS FROM VCINVESTINSRATE 
+                      GROUP BY INVESTMENTINS) MDATE
+          ON INVESTMENTS.INVINS_ACCOUNTINS = MDATE.InvestmentIns
+
+		  
+
+		  GROUP BY INVESTMENTS.INVINS_ACCOUNTINS
+           " ;
+    
+	COLUMN SECURITY_ID TYPE= 'STRING' LABEL= 'eFront Security ID';
+    COLUMN ADMINISTRATIVE_AGENT TYPE= 'STRING' LABEL= 'Administrative Agent';
+    COLUMN Cusip TYPE= 'STRING' LABEL= 'CUSIP';
+    COLUMN RGA_CUSIP TYPE= 'STRING' LABEL= 'RGA CUSIP';
+    COLUMN INVESTMENT TYPE= 'DOUBLE' LABEL= 'Investment';
+    COLUMN FACILITY TYPE= 'STRING' LABEL= 'Facility';
+    COLUMN INV_YEAR TYPE= 'STRING' LABEL= 'Vintage';
+    COLUMN PORTFOLIO TYPE= 'STRING' LABEL= 'Portfolio';
+    COLUMN short_code TYPE= 'STRING' LABEL= 'Company';
+    COLUMN COMPANY_DESCRIPTION TYPE= 'STRING' LABEL= 'Company Description';
+    COLUMN UNITRANCHE_MEZZ TYPE= 'STRING' LABEL= 'Uni/2nd/Mezz';
+    COLUMN SPONSOR TYPE= 'STRING' LABEL= 'Sponsor';
+    COLUMN SENIORITY TYPE= 'STRING' LABEL= 'Seniority';
+    COLUMN 'Company Legal Name' TYPE= 'STRING' LABEL= 'Company Legal Name';
+    COLUMN INST_CURR TYPE= 'STRING' LABEL= 'Instrument Currency';
+    COLUMN HQ_CITY TYPE= 'STRING' LABEL= 'HQ City';
+    COLUMN HQ_STATE TYPE= 'STRING' LABEL= 'HQ State';
+    COLUMN HQ_COUNTRY TYPE= 'STRING' LABEL= 'HQ Country';
+    COLUMN Collateral TYPE= 'STRING' LABEL= 'Collateral';
+    COLUMN INDUSTRY TYPE= 'STRING' LABEL= 'Industry (removed)';
+    COLUMN SUBINDUSTRY TYPE= 'STRING' LABEL= 'Industry'; //used to be Industry Sub Sector
+    COLUMN PIK TYPE= 'STRING' LABEL= 'PIK Coupon';
+    COLUMN CASH_COUPON TYPE= 'STRING' LABEL= 'Cash Coupon';
+    COLUMN SPREAD TYPE= 'STRING' LABEL= 'Spread';
+    COLUMN FLOOR TYPE= 'STRING' LABEL= 'Floor';
+    COLUMN CAP TYPE= 'STRING' LABEL= 'Cap';
+    COLUMN LEGAL_STRUCTURE TYPE= 'STRING' LABEL= 'Legal Structure';
+    COLUMN COMMITMENT TYPE= 'DOUBLE' LABEL= 'Commitment';
+    COLUMN PDE_ROLE TYPE= 'STRING' LABEL= 'PD&E Role';
+    COLUMN AMORTIZATION TYPE= 'STRING' LABEL= 'Amortization';
+    COLUMN TOTAL_FACILITY_SIZE TYPE= 'STRING' LABEL= 'Total Facility Size';
+    COLUMN BOARD_RIGHTS TYPE= 'STRING' LABEL= 'Board Rights';
+    COLUMN DEAL_LEAD TYPE= 'STRING' LABEL= 'Deal Lead';
+    COLUMN DEAL_SECONDARY TYPE= 'STRING' LABEL= 'Deal Secondary';
+    COLUMN DEAL_TERTIARY TYPE= 'STRING' LABEL= 'Deal Tertiary';
+    COLUMN MATURITY_DATE TYPE= 'STRING' LABEL= 'Maturity Date';
+    COLUMN FACILITY_STATUS TYPE= 'STRING' LABEL= 'Facility Status';
+    COLUMN EXIT_DATE TYPE= 'STRING' LABEL= 'Exit Date';
+    COLUMN FIXED_FLOATING TYPE= 'STRING' LABEL= 'Fixed / Floating';
+    COLUMN EGAN_RATING TYPE= 'STRING' LABEL= 'Egan-Jones Company Rating';
+    COLUMN NAIC_RATING TYPE= 'STRING' LABEL= 'NAIC Company Rating';
+    COLUMN PDE_RATING TYPE= 'STRING' LABEL= 'PD&E Rating';
+    COLUMN RGA_PLACEHOLDER_RATING  TYPE = 'STRING' LABEL = 'RGA Placeholder Company Rating';
+    COLUMN EGAN_INS_RATING TYPE= 'STRING' LABEL= 'Egan-Jones Instrument Rating';
+    COLUMN NAIC_INS_RATING TYPE= 'STRING' LABEL= 'NAIC Instrument Rating';
+    COLUMN RGA_PLACEHOLDER_INS_RATING  TYPE = 'STRING' LABEL = 'RGA Placeholder Instrument Rating';
+    COLUMN PDE_SCORE TYPE= 'STRING' LABEL= 'PD&E Rating Score';
+    COLUMN EGAN_CMP_RATING_EXPIRATION_DATE TYPE= 'STRING' LABEL= 'Egan-Jones Rating Expiration'; 
+    COLUMN INVESTMENT_DATE TYPE= 'STRING' LABEL= 'Investment Date';
+    COLUMN COMPANY TYPE= 'STRING' LABEL= '';
+    COLUMN COMPANY_ID TYPE= 'STRING' LABEL= 'Company Id';
+    COLUMN PERCENT_OWNERSHIP TYPE= 'STRING' LABEL= '% Ownership';
+    COLUMN VALUATION TYPE = 'DOUBLE' LABEL = 'Valuation';        //001
+    
+RUN;
+//remove
+//PROC PRINT DATA = WORK.INVSTINS LABEl;  RUN;
+
+
+
+
+//EQUITES QUERY
+
+/*------------------Direct Mezz by Vintage-------------*/ 
+
+/*------------------Direct LLC Corps-----------*/    
+
+DATA WORK.INVSTINS_EQ;
+	SQL "
+     WITH PERCENT_OWNERSHIP AS (
+            --SFA_CMP.IQID AS ACCOUNT
+            SELECT INVINS.ACCOUNTINS AS ACCOUNT, (SUM(OP_SHARES_RGA.NBSHARES)/NULLIF(SUM(OP_SHARES_OTHER.NBSHARES)+SUM(OP_SHARES_RGA.NBSHARES),0)) as perc_shares 
+                FROM VCINVESTMENTINS INVINS
+                    LEFT JOIN VCINVESTMENT VCINV ON VCINV.IQID = INVINS.INVESTMENT AND VCINV.IQDELETED=0 
+                    --LEFT JOIN SFAACCOUNT SFA_CMP ON SFA_CMP.IQID = VCINV.ACCOUNT AND SFA_CMP.IQDELETED=0
+                    
+                    
+                    LEFT JOIN VCINVESTMENTOP OP_SHARES_RGA 
+                        ON OP_SHARES_RGA.ACCOUNT = VCINV.ACCOUNT
+                        AND OP_SHARES_RGA.INVESTMENT = VCINV.IQID
+                        AND OP_SHARES_RGA.INVESTMENTINS = INVINS.IQID
+                        AND OP_SHARES_RGA.IQDELETED = 0 
+                        AND OP_SHARES_RGA.DRAFT = 0
+                        AND OP_SHARES_RGA.CLOSEDATE <= " & DML(%DATE) & "
+                        AND VCINV.ITYPE = 'RGAINV'
+                    
+                    LEFT JOIN VCINVESTMENTOP OP_SHARES_OTHER 
+                        ON OP_SHARES_OTHER.ACCOUNT = VCINV.ACCOUNT 
+                        AND OP_SHARES_OTHER.INVESTMENT = VCINV.IQID
+                        AND OP_SHARES_OTHER.INVESTMENTINS = INVINS.IQID
+                        AND OP_SHARES_OTHER.IQDELETED = 0 
+                        AND OP_SHARES_OTHER.DRAFT = 0
+                        AND OP_SHARES_OTHER.CLOSEDATE <= " & DML(%DATE) & "
+                        AND (VCINV.ITYPE = 'OTHER' OR VCINV.ITYPE IS NULL)
+                        
+                        --group by SFA_CMP.IQID
+                        GROUP BY INVINS.ACCOUNTINS
+        ),
+    
+        INVESTMENTS AS (
+            SELECT 
+            MIN(INVINS.ACCOUNTINS)                         AS INVINS_ACCOUNTINS 
+            ,MIN(SFA_CMP.IQID)                               AS SFA_CMP_IQID
+            ,MIN(INVINS.IQID)                               AS INVINS_IQID
+            ,MIN(VCINV.ACCOUNT)                             AS VCINV_ACCOUNT
+            --,MIN(INVINS.UserText49)                         AS ADMINISTRATIVE_AGENT
+            ,'NA'                                             AS ADMINISTRATIVE_AGENT
+            ,MIN(INVINS.USERTEXT19)                        AS RGA_CUSIP
+            ,MIN(INVINS.USERDATE2)							AS INVINS_USERDATE2
+            ,MIN(SFA_CMP.INDUSTRY)                          AS SFA_CMP_INDUSTRY 
+            ,CASE MIN(INVINS.UserText50) 
+                WHEN 1 THEN 'C-Corp'
+                WHEN 2 THEN 'LP'
+                WHEN 3 THEN 'LLC'
+                WHEN 4 THEN 'Other'
+            END                                             AS LEGAL_STRUCTURE 
+            --,CASE MIN(INVINS.UserText16)
+            --    WHEN 1 THEN 'Lead'
+            --    WHEN 2 THEN 'Co-Lead'
+            --    WHEN 3 THEN 'Participant'
+            --END                                            AS PDE_ROLE
+            ,'NA' AS PDE_ROLE
+            ,COALESCE(MIN(INVINS.UserText17),'NA')                         AS AMORTIZATION
+            --CHANGED...
+            ,SUM( (CASE WHEN A.code = 'EQ03' -- 'EQ - Purchase/Subscription (w/o Commitment)%'
+                         or A.code = 'EQ42' -- 'EQ - Reinvestment of cash Dividend into Shares
+                         or A.code = 'EQ02' -- 'EQ - Subscription (Capital Issue with Commitment)
+                         or A.code = 'EQ81' -- 'EQ - Conversion In
+                         or A.code = 'EQ82' -- 'EQ - Conversion Out																																			 
+                    THEN A.AMOUNT2 
+                   ELSE 0 
+                  END 
+            )*(-1))                   AS INVESTMENT_AMOUNT    
+            ,SUM((CASE WHEN A.Code = 'EQ01' THEN A.Commitment2 ELSE 0 END)* (-1))    AS COMMITMENT
+            ,SUM(CASE WHEN A.Code = 'EQ30' THEN A.Valuation2 ELSE 0 END) AS VALUATION        
+
+            --,Cast(DATEPART(YYYY,MIN(A.CLOSEDATE)) AS varchar(4)) INV_YEAR
+            ,MIN(INVINS.UserNum5) as Inv_Year    -- 02/15/2022 MB
+             
+            ,MIN(VCPRT.PORTFOLIO)           AS PORTFOLIO
+            ,MIN(SFA_CMP.ShortName)         AS SHORT_CODE
+            ,MIN(CAST(SFA_CMP.DESCRIPTION AS nvarchar(max))) AS COMPANY_DESCRIPTION
+            ,MIN(INVINS.LIBELLE) 		   AS COMPANY_LEGAL_NAME
+            ,MIN(INVINS.CURRENCY1)         AS INST_CURR
+            
+            ,MIN(SFAS.CITY)				   AS HQ_CITY
+            ,MIN(STATES.STATECODE)	       AS HQ_STATE
+            ,MIN(COUNTRIES.ISOALPHA3)       AS HQ_COUNTRY
+
+            ,MIN(SFA_CMP.USERTEXT30) AS DEAL_LEAD
+            ,MIN(SFA_CMP.USERTEXT31) AS DEAL_SECONDARY
+            ,MIN(SFA_CMP.USERTEXT32) AS DEAL_TERTIARY
+               
+            ,MIN(INVINS.USERTEXT46)               INSTR_STATUS        --- DD 2018_02_28 added new field base on Ticket ITM0251960
+            ,MIN(INVINS.USERTEXT18)               AS TOTAL_FACILITY_SIZE
+            ,MIN(SFA_CMP.NAME)                    COMPANY
+            ,MIN(SFA_CMP.CREATIONDATE)            CREATIONDATE 
+            ,MIN(ltrim(rtrim(INVINS.LIBELLE)))    FUND
+            ,MIN(ltrim(rtrim(INVINS.usertext23))) Cusip
+            
+            
+            ,case 
+              when MIN(INVINS.USERTEXT21) = 1 then 'Fund' 
+              when MIN(INVINS.USERTEXT21) = 2 then 'Company' 
+            end  
+            as LP_TYPE
+            
+            ,COALESCE(MIN(FAIRVALUE.VALUATION), MIN(FAIRVALUE_MAX.VALUATION)) AS GAAP_FAIR_VALUE
+            
+            ,MIN(INVINS.CURRENCY1) CURRENCY
+              
+            ,SUM(CASE 
+                    WHEN A.code = 'EQ02' OR A.code = 'EQ03' OR A.code = 'EQ81' THEN A.AMOUNT2 * (-1)
+                    WHEN A.code = 'EQ51' THEN A.FORCECOST2
+                    WHEN A.code = 'EQ42' THEN A.FORCECOST2
+                    WHEN A.code = 'EQ20' THEN A.COST2 * (-1)        
+                    
+                END
+            ) AS PAR_OUTSTANDING            
+            
+            --Company > issues debt as an instrument, each instrument has a cusip and can be any of the following
+            --New field... currently null
+            --already in  system , why do we need new field?
+            ,(CASE MIN(INVINS.USERTEXT47)
+                        when  '1' then 'Revolver' 
+                        when  '2' then 'Term Loan' 
+                        when  '3' then 'Strip Unitranche' 
+                        when  '4' then 'Split First Lien' 
+                        when  '5' then 'Bifurcated LO Unitranche' 
+                        when  '6' then 'Second Lien' 
+                        when  '7' then 'Senior Secured Sub. Debt' 
+                        when  '8' then 'Senior Unsecured Sub. Debt' 
+                        when  '9' then 'Junior Sub. Debt' 
+                        when  '10' then 'Preferred Equity' 
+                        when  '11' then 'Common Equity' 
+                        when  '12' then 'Warrant' 
+            end) as FACILITY
+            
+            --These are currently all null
+            ,(CASE MIN(INVINS.USERTEXT47)
+                when '1' then 'Senior Debt' 
+                when '2' then 'Senior Debt' 
+                when '3' then 'Unitranche Debt' 
+                when '4' then 'Unitranche Debt'
+                when '5' then 'Second Lien Debt' 
+                when '6' then 'Second Lien Debt' 
+                when '7' then 'Subordinated Debt'
+                when '8' then 'Subordinated Debt'
+                when '9' then 'Subordinated Debt'
+                when '10' then 'Preferred Equity'
+                when '11' then 'Common Equity'
+                when '12' then 'Common Equity'
+            end) as SENIORITY 
+            
+            ,case 
+                when MIN(INVINS.USERTEXT41) = '1' then 'Debt Hedge Fund' 
+                when MIN(INVINS.USERTEXT41) = '2' then 'Alternatives Preferred Stock' 
+                when MIN(INVINS.USERTEXT41) = '3' then 'Senior Secured Loan' 
+                when MIN(INVINS.USERTEXT41) = '4' then 'Subordinated Loan' 
+                when MIN(INVINS.USERTEXT41) = '5' then 'Distressed Debt' 
+                when MIN(INVINS.USERTEXT41) = '6' then 'Real Asset Debt' 
+                when MIN(INVINS.USERTEXT41) = '7' then 'Senior Secured Loan' 
+                when MIN(INVINS.USERTEXT41) = '8' then 'Subordinated Loan/Mezzanine Funds' 
+                when MIN(INVINS.USERTEXT41) = '9' then 'Senior Secured Loan' 
+                when MIN(INVINS.USERTEXT41) = '10' then 'Subordinated Loan' 
+                when MIN(INVINS.USERTEXT41) = '11' then 'Senior Secured Loan' 
+                when MIN(INVINS.USERTEXT41) = '12' then 'Subordinated Loan' 
+                when MIN(INVINS.USERTEXT41) = '13' then 'Equity Hedge Fund' 
+                when MIN(INVINS.USERTEXT41) = '14' then 'Alternatives Common Stock' 
+                when MIN(INVINS.USERTEXT41) = '15' then 'Alternatives Preferred Stock' 
+                when MIN(INVINS.USERTEXT41) = '16' then 'Warrants' 
+                when MIN(INVINS.USERTEXT41) = '17' then 'Buyout' 
+                when MIN(INVINS.USERTEXT41) = '18' then 'Growth' 
+                when MIN(INVINS.USERTEXT41) = '19' then 'Real Asset Equity' 
+                when MIN(INVINS.USERTEXT41) = '20' then 'Secondary' 
+                when MIN(INVINS.USERTEXT41) = '21' then 'Venture Capital' 
+                when MIN(INVINS.USERTEXT41) = '22' then 'Structured Alternatives Common Stock' 
+                when MIN(INVINS.USERTEXT41) = '23' then 'Structured Alternatives Preferred Stock' 
+                when MIN(INVINS.USERTEXT41) = '24' then 'Senior Loan' 
+                when MIN(INVINS.USERTEXT41) = '25' then 'Subordinated Loan' 
+            end               as Security
+            
+                
+            --this field needs to reated, this is temporary  
+            ,CASE 
+                 WHEN MIN(INVINS.UserText47) IN ('1','2','3','4') THEN 'Unitranche'
+                 WHEN MIN(INVINS.UserText47) IN ('7','8','9') THEN 'Mezzanine'
+                 WHEN MIN(INVINS.UserText47) IN ('5', '6') THEN 'Second Lien'
+                 ELSE 'NA'
+              END as UNITRANCHE_MEZZ
+            --this field needs to reated, this is temporary
+            ,CASE
+                 WHEN MIN(INVINS.UserText47) IN ('1','2') THEN '1st Lien'
+                 WHEN MIN(INVINS.UserText47) IN ('3','4') THEN 'Split 1st Lien'
+                 WHEN MIN(INVINS.UserText47) IN ('5','6','7') THEN '2nd Lien'
+                 WHEN MIN(INVINS.UserText47) IN ('8','9') THEN 'Unsecured'
+                 ELSE 'NA'
+              END as Collateral     
+        
+        
+        --company ratings
+            ,(CASE WHEN MIN(AjxCmp_EganJones.MetaText1) IS NOT NULL THEN MIN(AjxCmp_EganJones.MetaText1) ELSE 
+                MIN(AjxCmpMax_EganJones.Rating) 
+            END) as EganJonesCmpRating
+            
+            ,(CASE WHEN MIN(AjxCmp_NAIC.MetaText1) IS NOT NULL THEN MIN(AjxCmp_NAIC.MetaText1) ELSE 
+                MIN(AjxCmpMax_NAIC.Rating) 
+            END) as NAICCmpRating
+            
+            ,(CASE WHEN MIN(AjxCmp_PDE.MetaText1) IS NOT NULL THEN MIN(AjxCmp_PDE.MetaText1) ELSE 
+                MIN(AjxCmpMax_PDE.Rating) 
+            END) as PDERating
+            
+            ,(CASE WHEN MIN(AjxCmp_RGAPlaceholder.MetaText1) IS NOT NULL THEN MIN(AjxCmp_RGAPlaceholder.MetaText1) ELSE 
+                MIN(AjxCmpMax_RGAPlaceholder.Rating) 
+            END) as RGAPlaceholderCmpRating
+            
+            --pde company raing score
+            ,(CASE WHEN MIN(AjxCmp_PDE.MetaText5) IS NOT NULL THEN MIN(AjxCmp_PDE.MetaText5) ELSE 
+                MIN(AjxCmpMax_PDE.Score) 
+            END) as PDEScore
+           
+            
+            --egan jones company rating expiration date
+            ,(CASE WHEN MIN(AjxCmp_EganJones.MetaDate2) IS NOT NULL THEN MIN(AjxCmp_EganJones.MetaDate2) ELSE
+                MIN(AjxCmpMax_EganJones.EndDate) 
+            END) as EganJonesCmpExpirationDate
+        
+            --instrument ratings 
+            ,(CASE WHEN MIN(AjxIns_EganJones.MetaText1) IS NOT NULL THEN MIN(AjxIns_EganJones.MetaText1) ELSE
+                MIN(AjxInsMax_EganJones.Rating) 
+            END) as EganJonesInsRating
+            
+            ,(CASE WHEN MIN(AjxIns_NAIC.MetaText1) IS NOT NULL THEN MIN(AjxIns_NAIC.MetaText1) ELSE
+                MIN(AjxInsMax_NAIC.Rating)
+            END) as NAICInsRating
+        
+        	,(CASE WHEN MIN(AjxIns_RGAPlaceholder.MetaText1) IS NOT NULL THEN MIN(AjxIns_RGAPlaceholder.MetaText1) ELSE
+                MIN(AjxInsMax_RGAPlaceholder.Rating)
+            END) as RGAPlaceholderInsRating
+        
+        
+        ,MIN(STR((PERCENT_OWNERSHIP.PERC_SHARES * 100), 6, 2)+'%') AS PERCENT_OWNERSHIP
+        
+        ,CONVERT(VARCHAR, FORMAT(MIN(INVOP.CloseDate),'MM/dd/yy'), 1) AS INVESTMENT_DATE
+        
+        ,CASE 
+               WHEN MIN(InvOp.CloseDate) <= " & DML(%DATE) & "  AND MIN(INVINS.USERDATE2) > " & DML(%DATE) & "  THEN 'Active'
+               WHEN MIN(InvOp.CloseDate) <= " & DML(%DATE) & "  AND MIN(INVINS.USERDATE2) IS NULL THEN 'Active'
+               --WHEN MIN(InvOp.CloseDate) <= " & DML(%DATE) & "  AND (ISNULL(MIN(INVINS.USERDATE2), 1) = 1) THEN 'Active'
+              ELSE 'Exited'
+          END as FACILITY_STATUS
+        
+        
+		FROM VCINVESTMENTINS INVINS 
+        
+        JOIN VCINVESTMENT VCINV ON VCINV.IQID = INVINS.INVESTMENT AND VCINV.IQDELETED=0 
+            
+        LEFT JOIN (SELECT  ACCOUNT, MAX(USERTEXT7) USERTEXT7, MAX(USERDATE5) USERDATE5, MAX(USERTEXT30) USERTEXT30 
+                   FROM VCPROJECT VCP1 
+                   WHERE VCP1.IQDELETED=0 
+                     AND VCP1.WORKFLOW in (SELECT  IQID 
+                                             FROM ADMWORKFLOW 
+                                             WHERE LIBELLE IN ('RGA Direct Mezzanine','RGA Equity Co-Investment')
+                                               and IQDELETED=0
+                                          )  
+                   GROUP BY ACCOUNT                  
+                ) VCP 
+        ON VCP.ACCOUNT = VCINV.ACCOUNT
+        
+            
+		LEFT JOIN SFAACCOUNT SFA 
+		  ON SFA.IQID = VCP.USERTEXT7 
+			AND SFA.IQDELETED=0  
+            
+		LEFT JOIN SFAACCOUNT SFA_CMP 
+            ON SFA_CMP.IQID = VCINV.ACCOUNT  
+			AND SFA_CMP.IQDELETED=0    
+         
+        --PERCENT_OWNERSHIP 
+            
+        LEFT JOIN PERCENT_OWNERSHIP 
+        --ON PERCENT_OWNERSHIP.ACCOUNT = SFA_CMP.IQID
+        ON PERCENT_OWNERSHIP.ACCOUNT = INVINS.ACCOUNTINS 
+         
+		LEFT JOIN SFASITE SFAS
+			ON SFA_CMP.MainSite = SFAS.IQID
+			AND SFAS.IQDeleted = 0    
+            
+            
+         LEFT JOIN VCSTATE STATES
+            ON STATES.CODE = SFAS.STATE 
+            AND STATES.FILTER NOT LIKE '00000%'
+            
+        LEFT JOIN SFACOUNTRY COUNTRIES
+            ON SFAS.COUNTRY = COUNTRIES.CODE 
+            AND COUNTRIES.FILTER NOT LIKE '00000%'   
+
+          --Egan jones and naic company rating and PD & E rating
+            LEFT JOIN (
+                SELECT MIN(MetaText1) as MetaText1, 
+                Company as Company, 
+                MIN(MetaDate2) as MetaDate2
+                
+                FROM AJXDYNTABLE 
+			    WHERE IQDeleted = 0
+				AND MetaDate1 <= " & DML(%DATE) & "
+				AND MetaDate2 > " & DML(%DATE) & "
+                AND MetaText2 = '4'
+                AND CLASS1 = 'Ratings'
+                
+                --GROUP BY MetaText1, MetaDate1, MetaDate2
+                GROUP BY Company
+                ) AjxCmp_EganJones
+				ON VCINV.Account = AjxCmp_EganJones.Company
+
+             LEFT JOIN (
+                 SELECT MIN(MetaText1) as MetaText1,
+                 Company as Company, 
+                 MIN(MetaDate2) as MetaDate2
+                 FROM AJXDYNTABLE 
+				WHERE IQDeleted = 0
+				AND MetaDate1 <= " & DML(%DATE) & "
+				AND MetaDate2 > " & DML(%DATE) & "
+                AND MetaText2 = '2'
+                AND CLASS1 = 'Ratings'
+                
+                --GROUP BY MetaText1, MetaDate1, MetaDate2
+                GROUP BY Company
+            ) AjxCmp_NAIC 
+            ON VCINV.Account = AjxCmp_NAIC.Company
+
+            LEFT JOIN (
+                SELECT Company as Company,  
+                MIN(MetaText1) as MetaText1,
+                MIN(MetaDate2) as MetaDate2,
+                MIN(MetaText5) as MetaText5
+                FROM AJXDYNTABLE
+				
+				WHERE IQDeleted = 0
+				AND MetaDate1 <= " & DML(%DATE) & "
+				AND MetaDate2 > " & DML(%DATE) & "
+                AND MetaText2 = '5'
+                AND CLASS1 = 'Ratings'
+                
+                GROUP BY Company
+            ) AjxCmp_PDE
+            ON VCINV.Account = AjxCmp_PDE.Company
+			
+            --placeholder ratings for company, date specified
+            LEFT JOIN (SELECT MIN(MetaText1) as MetaText1, MIN(MetaText5) as MetaText5, Company as Company FROM AJXDYNTABLE
+				WHERE IQDeleted = 0
+				AND MetaDate1 <= " & DML(%DATE) & "
+				AND MetaDate2 > " & DML(%DATE) & "
+                AND MetaText2 = '10'
+                AND CLASS1 = 'Ratings'
+                GROUP BY Company
+            )  AjxCmp_RGAPlaceholder 
+            ON VCINV.Account = AjxCmp_RGAPlaceholder.Company
+            
+            --max company ratings...
+			LEFT JOIN (
+                SELECT Company as Company, MIN(MetaText1) as Rating, MIN(MetaDate2) as EndDate FROM AJXDYNTABLE outerAJX WHERE
+                 IQDeleted = 0
+                AND MetaText2 = '4'
+                AND MetaDate2 = (SELECT MAX(MetaDate2) FROM AJXDYNTABLE innerAJX WHERE innerAJX.Company = outerAJX.Company AND IQDeleted = 0 AND MetaText2='4' and innerAJX.CLASS1='Ratings')
+                AND CLASS1 = 'Ratings'
+               -- GROUP BY MetaText1, MetaDate1, MetaDate2
+               GROUP BY Company
+            ) AjxCmpMax_EganJones
+              ON VCINV.Account = AjxCmpMax_EganJones.Company
+            
+            LEFT JOIN (
+                SELECT Company as Company, MIN(MetaText1) as Rating FROM AJXDYNTABLE outerAJX WHERE
+                 IQDeleted = 0
+                AND MetaText2 = '2'
+                AND MetaDate2 = (SELECT MAX(MetaDate2) FROM AJXDYNTABLE innerAJX WHERE innerAJX.Company = outerAJX.Company AND IQDeleted = 0 AND MetaText2='2' AND innerAJX.CLASS1='Ratings')
+                AND CLASS1 = 'Ratings'
+                --GROUP BY MetaText1, MetaDate1, MetaDate2
+                GROUP BY Company
+            ) AjxCmpMax_NAIC
+              ON VCINV.Account = AjxCmpMax_NAIC.Company
+              
+           
+            LEFT JOIN (
+                SELECT Company as Company, MIN(MetaText1) as Rating, MIN(MetaText5) as Score FROM AJXDYNTABLE outerAJX WHERE
+                 IQDeleted = 0
+                AND MetaText2 = '5'
+                AND MetaDate2 = (SELECT MAX(MetaDate2) FROM AJXDYNTABLE innerAJX WHERE innerAJX.Company = outerAJX.Company AND IQDeleted = 0 AND MetaText2='5' AND innerAJX.CLASS1='Ratings')
+                AND CLASS1 = 'Ratings'
+                GROUP BY Company
+            ) AjxCmpMax_PDE
+            ON VCINV.Account = AjxCmpMax_PDE.Company
+			
+            --placeholder ratings for company, last dated rating
+            LEFT JOIN (
+                SELECT Company, MIN(MetaText1) as Rating, MIN(MetaText5) as Score FROM AJXDYNTABLE outerAJX WHERE
+                 IQDeleted = 0
+                AND MetaText2 = '10'
+                AND MetaDate2 = (SELECT MAX(MetaDate2) FROM AJXDYNTABLE innerAJX WHERE innerAJX.Company = outerAJX.Company AND IQDeleted = 0 AND MetaText2='10' AND innerAJX.CLASS1='Ratings')
+                AND CLASS1 = 'Ratings'
+                GROUP BY Company
+            ) AjxCmpMax_RGAPlaceholder
+            ON VCINV.Account = AjxCmpMax_RGAPlaceholder.Company
+            
+            --Egan Jones and NAIC Instrument Rating and PD & E rating
+			LEFT JOIN ( 
+            SELECT MIN(MetaText1) as MetaText1, InvestmentIns as InvestmentIns FROM 
+                AJXDYNTABLE 
+				 WHERE IQDeleted = 0
+				 AND MetaDate1 <= " & DML(%DATE) & "
+				 AND MetaDate2 > " & DML(%DATE) & "
+                 AND MetaText2 = '4'
+                 AND CLASS1 = 'Ratings'
+                 GROUP BY InvestmentIns
+                -- GROUP BY MetaText1, MetaDate1, MetaDate2
+             ) AjxIns_EganJones
+		    ON InvIns.AccountIns = AjxIns_EganJones.InvestmentIns
+             
+            LEFT JOIN ( 
+            SELECT MIN(MetaText1) as MetaText1, MIN(InvestmentIns) as InvestmentIns FROM AJXDYNTABLE
+				 WHERE IQDeleted = 0
+				 AND MetaDate1 <= " & DML(%DATE) & "
+				 AND MetaDate2 > " & DML(%DATE) & "
+                 AND MetaText2 = '2' 
+                 AND CLASS1 = 'Ratings'
+                 GROUP BY InvestmentIns
+                 --GROUP BY MetaText1, MetaDate1, MetaDate2
+             ) AjxIns_NAIC
+             ON InvIns.AccountIns = AjxIns_NAIC.InvestmentIns
+             
+             
+             --placeholder ratings for instrument, date specified
+            LEFT JOIN (SELECT MIN(MetaText1) as MetaText1, InvestmentIns FROM AJXDYNTABLE
+				
+				 WHERE IQDeleted = 0
+				 AND MetaDate1 <= " & DML(%DATE) & "
+				 AND MetaDate2 > " & DML(%DATE) & "
+                 AND MetaText2 = '10' 
+                 AND CLASS1 = 'Ratings'
+                 GROUP BY InvestmentIns
+            ) AjxIns_RGAPlaceholder
+            ON InvIns.AccountIns = AjxIns_RGAPlaceholder.InvestmentIns
+             
+            --instrument ratings 
+            LEFT JOIN (
+                SELECT MIN(InvestmentIns) as InvestmentIns, MIN(MetaText1) as Rating FROM AJXDYNTABLE outerAJX WHERE
+                 IQDeleted = 0
+                AND MetaText2 = '4'
+                AND MetaDate2 = (SELECT MAX(MetaDate2) FROM AJXDYNTABLE innerAJX WHERE innerAJX.InvestmentIns = outerAJX.InvestmentIns AND IQDeleted = 0 AND MetaText2='4' AND CLASS1 = 'Ratings')
+                AND CLASS1 = 'Ratings'
+                GROUP BY InvestmentIns
+                --GROUP BY MetaText1, MetaDate1, MetaDate2
+            ) AjxInsMax_EganJones
+              ON InvIns.AccountIns = AjxInsMax_EganJones.InvestmentIns
+
+            LEFT JOIN (
+                SELECT MIN(InvestmentIns) as InvestmentIns, MIN(MetaText1) as Rating FROM AJXDYNTABLE outerAJX WHERE
+                 IQDeleted = 0
+                AND MetaText2 = '2'
+                AND MetaDate2 = (SELECT MAX(MetaDate2) FROM AJXDYNTABLE innerAJX WHERE innerAJX.InvestmentIns = outerAJX.InvestmentIns AND IQDeleted = 0 AND MetaText2='2' AND CLASS1 = 'Ratings')
+                AND CLASS1 = 'Ratings'
+               -- GROUP BY MetaText1, MetaDate1, MetaDate2
+               GROUP BY InvestmentIns
+            ) AjxInsMax_NAIC
+              ON InvIns.AccountIns = AjxInsMax_NAIC.InvestmentIns
+            
+         --placeholder ratings for instrument, lasted date rating
+            LEFT JOIN (
+                SELECT InvestmentIns, MIN(MetaText1) as Rating FROM AJXDYNTABLE outerAJX WHERE
+                 IQDeleted = 0
+                AND MetaText2 = '10'
+                AND MetaDate2 = (SELECT MAX(MetaDate2) FROM AJXDYNTABLE innerAJX WHERE innerAJX.InvestmentIns = outerAJX.InvestmentIns AND IQDeleted = 0 AND MetaText2='10' AND innerAJX.CLASS1='Ratings')
+                AND CLASS1 = 'Ratings'
+                GROUP BY InvestmentIns
+            ) AjxInsMax_RGAPlaceholder
+              ON InvIns.AccountIns = AjxInsMax_RGAPlaceholder.InvestmentIns    
+            
+        LEFT JOIN (
+			SELECT op.INVESTMENTINS, SUM(COALESCE(op.AMOUNT2,0.0)) as AMOUNT FROM VCINVESTMENTOP op
+			WHERE op.CloseDate <= " & DML(%DATE) & " AND op.TYPEINVESTOP IN('EQ02', 'EQ03')
+			
+			GROUP BY op.INVESTMENTINS
+			
+		 ) PAR_AMOUNT ON PAR_AMOUNT.INVESTMENTINS = INVINS.IQID 
+
+		 LEFT JOIN (
+			SELECT op.INVESTMENTINS, SUM(COALESCE(op.FORCECOST2,0.0)) as FORCECOST FROM VCINVESTMENTOP op
+			WHERE op.CloseDate <= " & DML(%DATE) & " AND op.TYPEINVESTOP IN('EQ51')
+			GROUP BY op.INVESTMENTINS
+		 ) PAR_FORCECOST  ON PAR_FORCECOST.INVESTMENTINS = INVINS.IQID 
+
+		 LEFT JOIN (
+			SELECT op.INVESTMENTINS, SUM(COALESCE(op.COST2,0.0)) as COST_OF_SALE FROM VCINVESTMENTOP op
+			WHERE op.CloseDate <= " & DML(%DATE) & " AND op.TYPEINVESTOP IN('EQ20')
+			GROUP BY op.INVESTMENTINS
+		 ) PAR_COST  ON PAR_COST.INVESTMENTINS = INVINS.IQID  
+
+
+		JOIN VCPORTFOLIOASSET VCPRTAST 
+			ON VCPRTAST.INVESTMENT = VCINV.IQID  
+			AND  VCPRTAST.IQDELETED=0	
+			
+		JOIN VCPORTFOLIO VCPRT 
+			ON VCPRT.IQID = VCPRTAST.PORTFOLIO 
+			AND VCPRT.PORTFOLIO = 'PDE - Direct Equity' 
+			AND  VCPRT.IQDELETED=0   
+
+        /*    
+		LEFT JOIN VCINVESTMENTOP A  
+		  ON A.INVESTMENTINS=INVINS.IQID 
+          
+		LEFT JOIN VCINVESTOPTYPE OPT 
+		  ON OPT.CODE = A.TYPEINVESTOP 
+			--AND OPT.DESCR like 'EQ - Purchase/Subscription (w/o Commitment)%' 
+			and ( OPT.code = 'EQ01' --'Commitments'
+                  or OPT.code = 'EQ03'     -- 'EQ - Purchase/Subscription (w/o Commitment)%'
+				  or OPT.code = 'EQ42' -- 'EQ Reinvestment of cash Dividend into Shares
+				  or OPT.code = 'EQ02' -- 'EQ - Subscription (Capital Issue with Commitment)
+				  or OPT.code = 'EQ81' -- 'EQ - Conversion In
+				  or OPT.code = 'EQ82' -- 'EQ - Conversion Out	
+                  or OPT.code = 'EQ20'
+                  or OPT.code = 'EQ51'
+				)
+			AND OPT.FILTER NOT LIKE '000000%'
+		*/
+        LEFT JOIN
+                (
+                SELECT 
+                     OuterOp.InvestmentIns as InvestmentIns
+                    ,OuterOp.IQRegionID as IQRegionID
+                    ,OuterOp.CloseDate as CloseDate
+                    ,OuterOp.TypeInvestOp as Code
+                    ,OuterOp.Amount2 as Amount2
+                    ,OuterOp.Commitment2 as Commitment2
+                    ,OuterOp.Valuation2 as Valuation2
+                    ,OuterOp.ForceCost2 as ForceCost2
+                    ,OuterOp.Cost2 as Cost2
+                FROM VCINVESTMENTOP OuterOp                 
+			    WHERE OuterOp.IQDELETED=0
+                AND OuterOp.DRAFT=0
+                AND (OuterOp.CANCELLED=0 OR OuterOp.CANCELLED IS NULL)
+				AND OuterOp.CLOSEDATE <=  " & DML(%DATE) & "  
+                AND (OuterOp.TypeInvestOp IN ('EQ01','EQ02','EQ03','EQ42','EQ81','EQ82','EQ20','EQ51') 
+                OR 
+                    (
+                    OuterOp.TypeInvestOp = 'EQ30'
+                    AND OuterOp.CloseDate = 
+                            (
+                            SELECT 
+                                MAX(CloseDate) 
+                            FROM VCINVESTMENTOP InnerOp
+                            WHERE InnerOp.TypeInvestOp = 'EQ30' 
+                            AND InnerOp.CloseDate <=  " & DML(%DATE) & "
+                            AND InnerOp.InvestmentIns = OuterOp.InvestmentIns
+                            )
+                       ))
+                   
+                )A
+                ON A.INVESTMENTINS = INVINS.IQID    --001
+            
+        --GAAP_FAIR_VALUE
+        LEFT JOIN (SELECT VALUATION, INVESTMENTINS FROM VCINVESTMENTOP FAIRVALUE 
+                         WHERE FAIRVALUE.DRAFT = 0
+                        AND FAIRVALUE.IQDELETED = 0
+                        AND (FAIRVALUE.CANCELLED = 0 OR FAIRVALUE.CANCELLED IS NULL)
+                        --equity valuation
+                        AND FAIRVALUE.TYPEINVESTOP = 'EQ30'
+                        AND FAIRVALUE.CLOSEDATE = (
+                           SELECT MAX(innerOp.CLOSEDATE) FROM VCINVESTMENTOP innerOp
+                           WHERE innerOp.INVESTMENT = FAIRVALUE.INVESTMENT
+                           AND innerOp.DRAFT = 0
+                           AND innerOp.IQDELETED = 0
+                           AND (FAIRVALUE.CANCELLED = 0 OR FAIRVALUE.CANCELLED IS NULL)
+                           AND innerOp.TYPEINVESTOP = 'EQ30'
+                           AND innerOp.CLOSEDATE <= " & DML(%DATE) & "
+                       )
+                       -- GROUP BY INVESTMENTINS
+                    ) FAIRVALUE
+             ON FAIRVALUE.INVESTMENTINS = INVINS.IQID
+        
+        --to get last gaap fair value if you chose a date later than the available operations for this investment
+        LEFT JOIN VCINVESTMENTOP FAIRVALUE_MAX
+           ON FAIRVALUE_MAX.INVESTMENTINS = INVINS.IQID
+           AND FAIRVALUE_MAX.DRAFT = 0
+           AND FAIRVALUE_MAX.IQDELETED = 0
+           AND FAIRVALUE_MAX.CANCELLED = 0
+           AND FAIRVALUE_MAX.TYPEINVESTOP = 'EQ30'
+           AND FAIRVALUE_MAX.CLOSEDATE = (
+               SELECT MAX(innerOp.CLOSEDATE) FROM VCINVESTMENTOP innerOp
+               WHERE innerOp.INVESTMENT = FAIRVALUE_MAX.INVESTMENT
+               AND innerOp.DRAFT = 0
+               AND innerOp.IQDELETED = 0
+               AND innerOp.CANCELLED = 0
+               AND innerOp.TYPEINVESTOP = 'EQ30'
+           )
+       
+       --INVESTMENT STATUS
+       LEFT JOIN 
+         (
+             SELECT 
+                   InvestmentIns, MIN(CloseDate) as CloseDate, SUM(Amount2) as Amount2
+             FROM VCINVESTMENTOP
+             WHERE TypeInvestOp IN('EQ02', 'EQ03', 'EQ42', 'EQ81', 'EQ82')
+             AND IQDeleted = 0
+             GROUP BY InvestmentIns
+         ) INVOP
+         ON INVINS.IQID = INVOP.InvestmentIns 
+        
+		JOIN ADMROLE REG 
+            ON VCINV.IQREGIONID = REG.IQID 
+			AND REG.IQDELETED=0 
+			AND A.IQREGIONID = REG.IQID 
+			AND REG.NAME = 'Private Debt & Equity'
+		
+		JOIN VCINVESTINSTYPE INVTYP 
+            ON INVTYP.IQID = INVINS.INVESTINSTYPE 
+			AND INVTYP.IQDELETED=0
+			AND INVTYP.DESCR NOT LIKE 'Loan%'
+            
+		WHERE INVINS.IQDELETED=0 
+		  /*AND A.IQDELETED=0 
+          AND (A.CANCELLED=0 OR A.CANCELLED IS NULL)
+          AND A.DRAFT=0
+		  AND A.CLOSEDATE <=  " & DML(%DATE) & "
+		  AND ??FILTER*/        --001
+								 
+	   GROUP BY  INVINS.ACCOUNTINS   
+       --ORDER BY 9
+        
+        )    		
+        
+--------------------------------------------------------------------------------------------------------------------------      
+        
+       SELECT  
+       MIN(INVESTMENTS.INVINS_ACCOUNTINS)    AS INVINS_ACCOUNTINS
+        ,MIN(INVESTMENTS.ADMINISTRATIVE_AGENT)    AS ADMINISTRATIVE_AGENT
+        ,MIN(INVESTMENTS.INVESTMENT_AMOUNT)    AS INVESTMENT
+		,MIN(INVESTMENTS.FACILITY)			AS FACILITY
+        ,MIN(INVESTMENTS.INV_YEAR)            AS INV_YEAR
+        ,MIN(INVESTMENTS.PORTFOLIO)            AS PORTFOLIO
+		,MIN(INVESTMENTS.SHORT_CODE)             AS short_code
+        ,MIN(INVESTMENTS.COMPANY_DESCRIPTION)    AS COMPANY_DESCRIPTION
+		,MIN(INVESTMENTS.COMPANY_LEGAL_NAME) 		   AS 'Company Legal Name'
+		,MIN(INVESTMENTS.INST_CURR)              AS INST_CURR
+		,MIN(INVESTMENTS.HQ_CITY)				   AS HQ_CITY
+        ,MIN(INVESTMENTS.HQ_STATE)	       AS HQ_STATE
+        ,MIN(INVESTMENTS.HQ_COUNTRY)       AS HQ_COUNTRY
+        
+        --none of these for equities...
+        ,NULL AS CASH_COUPON
+        ,NULL AS SPREAD
+        ,NULL AS FLOOR
+        ,NULL AS CAP
+        
+        ,MIN(SFASPONSOR.NAME)           AS SPONSOR     
+        ,MIN(INVESTMENTS.DEAL_LEAD)    AS DEAL_LEAD
+        ,MIN(INVESTMENTS.DEAL_SECONDARY)    AS DEAL_SECONDARY
+        ,MIN(INVESTMENTS.DEAL_TERTIARY)    AS DEAL_TERTIARY
+        ,MIN(INVESTMENTS.INSTR_STATUS)            AS INSTR_STATUS
+        ,MIN(INVESTMENTS.COMPANY)                AS COMPANY
+        ,MIN(INVESTMENTS.FUND)                    AS FUND
+        ,MIN(INVESTMENTS.Cusip)                AS Cusip
+        ,MIN(INVESTMENTS.RGA_CUSIP)            AS RGA_CUSIP
+        ,MIN(INVESTMENTS.LP_TYPE)                AS LP_TYPE
+		,MIN(INVESTMENTS.SENIORITY)				AS SENIORITY
+		,MIN(INVESTMENTS.UNITRANCHE_MEZZ)		AS UNITRANCHE_MEZZ
+		,MIN(INVESTMENTS.Collateral)				AS Collateral
+        ,MIN(INVESTMENTS.LEGAL_STRUCTURE)            AS LEGAL_STRUCTURE
+		,MIN(INVESTMENTS.PAR_OUTSTANDING)					AS PAR_OUTSTANDING
+		,CASE WHEN  CHARINDEX(' - ', MIN(INDUSTRY.DESCR)) > 0 
+            THEN  RTRIM(LTRIM(SUBSTRING(MIN(INDUSTRY.DESCR), CHARINDEX(' - ', MIN(INDUSTRY.DESCR))+3, LEN(MIN(INDUSTRY.DESCR))))) 
+            ELSE  MIN(INDUSTRY.DESCR) 
+        END        AS INDUSTRY
+        ,CASE WHEN CHARINDEX(' - ', MIN(INDSUB.DESCR)) > 0 
+            THEN RTRIM(LTRIM(SUBSTRING(MIN(INDSUB.DESCR), CHARINDEX(' - ', MIN(INDSUB.DESCR))+3, LEN(MIN(INDSUB.DESCR))))) 
+            ELSE MIN(INDSUB.DESCR) 
+        END               AS SUBINDUSTRY 
+		,COALESCE(MIN(INVESTMENTS.GAAP_FAIR_VALUE),0)	AS GAAP_FAIR_VALUE
+        ,MIN(INVESTMENTS.TOTAL_FACILITY_SIZE)	AS TOTAL_FACILITY_SIZE
+        ,'NA'    AS MATURITY_DATE
+        
+		,MIN(COALESCE(INVESTMENTS.COMMITMENT,0)) AS COMMITMENT
+		   
+        ,MIN(INVESTMENTS.PDE_ROLE)                    AS PDE_ROLE
+
+        ,MIN(INVESTMENTS.AMORTIZATION)   AS AMORTIZATION
+        , NULL AS PIK      
+        /*, CASE 
+               WHEN MIN(InvOp.CloseDate) <= " & DML(%DATE) & "  AND MIN(INVESTMENTS.INVINS_USERDATE2) > " & DML(%DATE) & "  THEN 'Active'
+               WHEN MIN(InvOp.CloseDate) <= " & DML(%DATE) & "  AND MIN(INVESTMENTS.INVINS_USERDATE2) IS NULL THEN 'Active'
+               --WHEN MIN(InvOp.CloseDate) <= " & DML(%DATE) & "  AND (ISNULL(MIN(INVESTMENTS.INVINS_USERDATE2), 1) = 1) THEN 'Active'
+              ELSE 'Exited'
+          END as FACILITY_STATUS*/
+          ,MIN(INVESTMENTS.FACILITY_STATUS) as FACILITY_STATUS
+         
+         ,CONVERT(VARCHAR, FORMAT(MIN(INVESTMENTS.INVINS_USERDATE2),'MM/dd/yy'), 1) AS EXIT_DATE 
+          
+        --, CONVERT(varchar, MIN(INVOP.CloseDate), 1) as INVESTMENT_DATE 
+        /*,CONVERT(VARCHAR, FORMAT(MIN(INVOP.CloseDate),'MM/dd/yy'), 1) AS INVESTMENT_DATE*/
+        --,MIN(INVOP.CloseDate) as INVESTMENT_DATE
+        ,MIN(INVESTMENTS.INVESTMENT_DATE) as INVESTMENT_DATE
+        
+        , CASE MIN(VCP_DEAL.BOARD_RIGHTS)
+				    WHEN '1' THEN 'Voting Member'
+                    WHEN '2' THEN 'Non-Voting Member'
+                    WHEN '3' THEN 'Observation Rights'
+                    WHEN '4' THEN 'None'
+				END   AS BOARD_RIGHTS
+		
+        ,MIN(INVESTMENTS.SFA_CMP_IQID) AS COMPANY_ID
+        
+        ,MIN(INVESTMENTS.EganJonesCmpRating)	AS EGAN_RATING
+        ,MIN(INVESTMENTS.NAICCmpRating)			AS NAIC_RATING
+        ,MIN(INVESTMENTS.PDERating)             AS PDE_RATING 
+        ,MIN(INVESTMENTS.RGAPlaceholderCmpRating) AS RGA_PLACEHOLDER_RATING 
+        ,MIN(INVESTMENTS.EganJonesInsRating)	AS EGAN_INS_RATING
+		,MIN(INVESTMENTS.NAICInsRating)			AS NAIC_INS_RATING  
+        ,MIN(INVESTMENTS.RGAPlaceholderInsRating) AS RGA_PLACEHOLDER_INS_RATING 
+        ,MIN(INVESTMENTS.PDEScore)             AS PDE_SCORE         
+        
+        --,MIN(INVESTMENTS.EganJonesCmpExpirationDate) AS EGAN_CMP_RATING_EXPIRATION_DATE
+        ,CONVERT(VARCHAR, FORMAT(MIN(INVESTMENTS.EganJonesCmpExpirationDate),'MM/dd/yy'), 1) AS EGAN_CMP_RATING_EXPIRATION_DATE
+        
+        ,MIN(INVESTMENTS.PERCENT_OWNERSHIP) AS PERCENT_OWNERSHIP
+        ,MIN(INVESTMENTS.Valuation) AS VALUATION    --001
+       
+        FROM INVESTMENTS 
+
+	    LEFT JOIN AJXCRMCOMPANYINDUSTRYFOCUS AJXIND
+			ON INVESTMENTS.SFA_CMP_IQID = AJXIND.CompanyId
+            AND AJXIND.IQDeleted = 0     
+
+        LEFT JOIN VCINDUSTRY INDSUB
+            ON INVESTMENTS.SFA_CMP_INDUSTRY = INDSUB.CODE
+            AND INDSUB.FILTER NOT LIKE '00000%'
+         
+        LEFT JOIN VCINDUSTRY INDUSTRY
+            ON INDUSTRY.CODE = AJXIND.INDUSTRYCODE
+            AND INDUSTRY.FILTER NOT LIKE '00000%' 
+        
+       --INVESTMENT STATUS
+       /*
+       LEFT JOIN 
+         (
+             SELECT 
+                   InvestmentIns, MIN(CloseDate) as CloseDate, SUM(Amount2) as Amount2
+             FROM VCINVESTMENTOP
+             WHERE TypeInvestOp IN('EQ02', 'EQ03', 'EQ42', 'EQ81', 'EQ82')
+             AND IQDeleted = 0
+             GROUP BY InvestmentIns
+         ) INVOP
+         ON INVESTMENTS.INVINS_IQID = INVOP.InvestmentIns 
+         */
+            
+            
+        --Board Rights, VCPROJECT (Deal screen) Investment summary...
+       LEFT JOIN 
+           (
+               SELECT VCP1.ACCOUNT
+                   ,VCP1.IQID
+                   ,COALESCE(VCP2.UserText24, VCP1.UserText24) AS ROLE_IN_TRANSACTION
+                   ,COALESCE(VCP2.UserText30, VCP1.UserText30) AS BOARD_RIGHTS
+                   ,COALESCE(VCP2.UserText7, VCP1.UserText7) AS SPONSOR
+               FROM VCPROJECT VCP1
+               LEFT JOIN VCPROJECT VCP2
+                   --LINKED_DEAL
+                   ON VCP1.UserText38 = VCP2.IQID
+                   AND VCP2.IQDeleted=0
+               WHERE VCP1.IQDeleted=0
+           ) VCP_DEAL
+           ON INVESTMENTS.VCINV_ACCOUNT = VCP_DEAL.ACCOUNT    
+           
+          --SPONSOR
+        LEFT JOIN SFAACCOUNT SFASPONSOR
+            ON VCP_DEAL.SPONSOR = SFASPONSOR.IQID
+            AND SFASPONSOR.IQDeleted = 0    
+           
+
+
+		GROUP BY  INVESTMENTS.INVINS_ACCOUNTINS ORDER BY INSTR_STATUS
+        " ;      
+	COLUMN SECURITY_ID TYPE= 'STRING' LABEL= 'eFront Security ID';
+    COLUMN ADMINISTRATIVE_AGENT TYPE= 'STRING' LABEL= 'Administrative Agent';
+    COLUMN INVESTMENT TYPE= 'DOUBLE' LABEL= 'Investment';
+    COLUMN FACILITY TYPE= 'STRING' LABEL= 'Facility';
+    COLUMN INV_YEAR TYPE= 'STRING' LABEL= 'Vintage';
+    COLUMN PORTFOLIO TYPE= 'STRING' LABEL= 'Portfolio';
+    COLUMN short_code TYPE= 'STRING' LABEL= 'Company';
+    COLUMN COMPANY_DESCRIPTION TYPE= 'STRING' LABEL= 'Company Description';
+    COLUMN 'Company Legal Name' TYPE= 'STRING' LABEL= 'Company Legal Name';
+    COLUMN INST_CURR TYPE= 'STRING' LABEL= 'Instrument Currency';
+    COLUMN HQ_CITY TYPE= 'STRING' LABEL= 'HQ City';
+    COLUMN HQ_STATE TYPE= 'STRING' LABEL= 'HQ State';
+    COLUMN HQ_COUNTRY TYPE= 'STRING' LABEL= 'HQ Country';
+    COLUMN CASH_COUPON TYPE= 'STRING' LABEL= 'Cash Coupon';
+    COLUMN SPREAD TYPE= 'STRING' LABEL= 'Spread';
+    COLUMN FLOOR TYPE= 'STRING' LABEL= 'Floor';
+    COLUMN CAP TYPE= 'STRING' LABEL= 'Cap';
+    COLUMN SPONSOR TYPE= 'STRING' LABEL= 'Sponsor';
+    COLUMN DEAL_LEAD TYPE= 'STRING' LABEL= 'Deal Lead';
+    COLUMN DEAL_SECONDARY TYPE= 'STRING' LABEL= 'Deal Secondary';
+    COLUMN DEAL_TERTIARY TYPE= 'STRING' LABEL= 'Deal Tertiary';
+    COLUMN INSTR_STATUS TYPE= 'STRING' LABEL= 'Instrument Status';
+    COLUMN COMPANY TYPE= 'STRING' LABEL= '';
+    COLUMN FUND TYPE= 'STRING' LABEL= 'Fund';
+    COLUMN Cusip TYPE= 'STRING' LABEL= 'CUSIP';
+    COLUMN RGA_CUSIP TYPE= 'STRING' LABEL= 'RGA CUSIP';
+    COLUMN LP_TYPE TYPE= 'STRING' LABEL= 'LP Type';
+    COLUMN SENIORITY TYPE= 'STRING' LABEL= 'Seniority';
+    COLUMN UNITRANCHE_MEZZ TYPE= 'STRING' LABEL= 'Uni/2nd/Mezz';
+    COLUMN Collateral TYPE= 'STRING' LABEL= 'Collateral';
+    COLUMN LEGAL_STRUCTURE TYPE= 'STRING' LABEL= 'Legal Structure';
+    COLUMN PAR_OUTSTANDING TYPE= 'DOUBLE' LABEL= 'Par / Outstanding';
+    COLUMN INDUSTRY TYPE= 'STRING' LABEL= 'Industry (removed)';
+    COLUMN SUBINDUSTRY TYPE= 'STRING' LABEL= 'Industry'; //used to be Industry Sub Sector
+    COLUMN GAAP_FAIR_VALUE TYPE= 'DOUBLE' LABEL= 'GAAP Fair Value';
+    COLUMN TOTAL_FACILITY_SIZE TYPE= 'STRING' LABEL= 'Total Facility Size';
+    COLUMN MATURITY_DATE TYPE='STRING' LABEL='Maturity Date';
+    COLUMN COMMITMENT TYPE= 'DOUBLE' LABEL= 'Commitment';
+    COLUMN PDE_ROLE TYPE= 'STRING' LABEL= 'PD&E Role';
+    COLUMN AMORTIZATION TYPE= 'STRING' LABEL= 'Amortization';
+    COLUMN PIK TYPE= 'STRING' LABEL= 'PIK Coupon'; 
+    COLUMN FACILITY_STATUS TYPE= 'STRING' LABEL= 'Facility Status';
+    COLUMN EXIT_DATE TYPE= 'STRING' LABEL= 'Exit Date';
+    COLUMN INVESTMENT_DATE TYPE= 'STRING' LABEL= 'Investment Date'; 
+    COLUMN BOARD_RIGHTS TYPE= 'STRING' LABEL= 'Board Rights';
+    COLUMN COMPANY_ID TYPE= 'STRING' LABEL= 'Company Id';
+    COLUMN EGAN_RATING TYPE= 'STRING' LABEL= 'Egan-Jones Company Rating';
+    COLUMN NAIC_RATING TYPE= 'STRING' LABEL= 'NAIC Company Rating';
+    COLUMN PDE_RATING TYPE= 'STRING' LABEL= 'PD&E Rating';
+    COLUMN RGA_PLACEHOLDER_RATING  TYPE = 'STRING' LABEL = 'RGA Placeholder Company Rating';
+    COLUMN EGAN_INS_RATING TYPE= 'STRING' LABEL= 'Egan-Jones Instrument Rating';
+    COLUMN NAIC_INS_RATING TYPE= 'STRING' LABEL= 'NAIC Instrument Rating';
+    COLUMN RGA_PLACEHOLDER_INS_RATING  TYPE = 'STRING' LABEL = 'RGA Placeholder Instrument Rating';
+    COLUMN PDE_SCORE TYPE= 'STRING' LABEL= 'PD&E Rating Score';
+    COLUMN EGAN_CMP_RATING_EXPIRATION_DATE TYPE= 'STRING' LABEL= 'Egan-Jones Rating Expiration'; 
+    COLUMN PERCENT_OWNERSHIP TYPE= 'STRING' LABEL= '% Ownership';
+    COLUMN VALUATION TYPE = 'DOUBLE' LABEL = 'Valuation';        //001
+    
+RUN;
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\Equity_Instruments.xlsx" LABEL;
+   TABLE = WORK.INVSTINS_EQ
+   SHEETNAME="raw";
+RUN;
+
+
+
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\Loan_Instruments.xlsx" LABEL;
+   TABLE = WORK.INVSTINS
+   SHEETNAME="raw";
+RUN;
+*/
+
+
+
+//MB BEGIN
+
+DATA WORK.Direct_Investments;
+    MERGE WORK.INVSTINS (IN = OK_L)
+          WORK.INVSTINS_EQ (IN = OK_R);
+    BY CUSIP;
+    if (OK_L or OK_R) then Output;
+    end;
+RUN;
+
+PROC MEANS DATA = WORK.Direct_Investments
+    OUT = WORK.Instruments_By_Investment_Amount;
+    CLASS Security_ID;
+    VAR CUSIP RGA_CUSIP Company Investment_Date Investment;
+RUN;
+
+DATA WORK.Instruments_By_Investment_Amount;
+    SET WORK.Instruments_By_Investment_Amount;
+    COLUMN Reference_Date TYPE = DATE;
+    Reference_Date = CDATE(Investment_Date);
+RUN;
+
+DATA WORK.Instruments_With_Zero_Investment (RENAME = (Security_ID = Security_Company_ID ));
+    SET WORK.Instruments_By_Investment_Amount (WHERE Investment = '0');
+RUN;
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\Instruments_With_Zero_Investment.xlsx";
+   TABLE = WORK.Instruments_With_Zero_Investment
+   SHEETNAME="Instruments_Zero_Investment";
+RUN;
+*/
+
+DATA WORK.TIRR_Investment_Amount;
+    SET DCE.FV_T_PORTCO_Transactions(WHERE Reference_Date<=%DATE 
+                                     //Below here are investment transaction types
+                                     AND (Transaction_Type='LN02'     
+                                     OR Transaction_Type='LN03'     
+									 OR Transaction_Type='LN70'
+                                     OR Transaction_Type='LN71'     
+                                     OR Transaction_Type='LN81'     
+									 OR Transaction_Type='LN82'
+                                     OR Transaction_Type='EQ02'     
+                                     OR Transaction_Type='EQ03'     
+									 OR Transaction_Type='EQ42'
+                                     OR Transaction_Type='EQ81'     
+                                     OR Transaction_Type='EQ82')
+                                     AND Investment_Name <> 'Other Investors'                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+                                     );   
+RUN;
+
+//Do I want invesment amount to be 0 for all time, or OK to only check the first one?
+PROC MEANS DATA = WORK.TIRR_Investment_Amount
+    OUT = WORK.TIRR_Investment_Amount;
+    CLASS Security_Company_ID Reference_Date;
+    VAR Security_Name Company_Name;
+    SUM Cash2 (NAME = IRRStart);
+RUN;
+
+/*
+DATA WORK.Instruments_With_Zero_Investment_IRR_Start;
+    MERGE WORK.Instruments_With_Zero_Investment (IN = OK_L)
+          WORK.TIRR_Investment_Amount (IN = OK_R);
+    BY Security_Company_ID Reference_Date;
+    if (OK_L) then Output;
+    end;
+RUN;  
+*/
+DATA WORK.Instruments_With_Zero_Investment_IRR_Start;
+    MERGE WORK.TIRR_Investment_Amount (IN = OK_L)
+          WORK.Instruments_With_Zero_Investment (IN = OK_R);
+    BY Security_Company_ID Reference_Date;
+    if (OK_L) then Output;
+    end;
+RUN; 
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\TIRR_Start_Investment_Amount.xlsx";
+   TABLE = WORK.Instruments_With_Zero_Investment_IRR_Start  
+   SHEETNAME="TIRR_Start_Investment_Amount";
+RUN;
+*/
+
+DATA WORK.All_Instruments_IRR_Start;
+    SET WORK.Instruments_With_Zero_Investment_IRR_Start;
+    COLUMN IRRNet TYPE = DOUBLE;
+    
+    if (IRRStart is NULL or IRRStart = '0') and Investment = '0'
+        then IRRNet = '-0.01';
+    else IRRNet = IRRStart;
+    end;
+RUN;
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\All_Instruments_IRR_Start.xlsx";
+   TABLE = WORK.All_Instruments_IRR_Start  
+   SHEETNAME="All_Instruments_IRR_Start";
+RUN;
+*/
+//PROC PRINT DATA = WORK.All_Instruments_IRR_Start; RUN;
+
+
+DATA WORK.TIRR_Excl_Investment_Amount;
+    SET DCE.FV_T_PORTCO_Transactions(WHERE Reference_Date<=%DATE 
+                                     AND Transaction_Type<>'LN05'     //LN - Other Income
+                                     AND Transaction_Type<>'LN07'     //LN - Upfront Orignation Fee Income
+									 AND Transaction_Type<>'EQ06'     //EQ - Upfront Orignation Fee Income
+                                     //Below here are investment transaction types
+                                     AND Transaction_Type<>'LN02'     
+                                     AND Transaction_Type<>'LN03'     
+									 AND Transaction_Type<>'LN70'
+                                     AND Transaction_Type<>'LN71'     
+                                     AND Transaction_Type<>'LN81'     
+									 AND Transaction_Type<>'LN82'
+                                     AND Transaction_Type<>'EQ02'     
+                                     AND Transaction_Type<>'EQ03'     
+									 AND Transaction_Type<>'EQ42'
+                                     AND Transaction_Type<>'EQ81'     
+                                     AND Transaction_Type<>'EQ82'
+                                     //excluding EQ - Allotment below
+                                     AND Transaction_Type<>'EQ51'
+                                     AND Investment_Name <> 'Other Investors'
+                                     );   
+RUN;
+
+PROC MEANS DATA = WORK.TIRR_Excl_Investment_Amount
+    OUT = WORK.TIRR_Excl_Investment_Amount;
+    CLASS Security_Company_ID Reference_Date;
+    VAR Security_Name Company_Name;
+    SUM Cash2 (NAME = IRRNet);
+RUN;
+
+DATA WORK.TIRR (KEEP = Security_Company_ID Reference_Date Security_Name Company_Name IRRNet);
+    MERGE WORK.All_Instruments_IRR_Start (IN = OK_L)
+          WORK.TIRR_Excl_Investment_Amount (IN = OK_R);
+    BY Security_Company_ID Reference_Date IRRNet;
+    if (OK_L or OK_R) then Output;
+    end;
+RUN;
+    
+PROC SORT DATA = WORK.TIRR;   
+    BY Security_Company_ID Reference_Date IRRNet;
+RUN;
+
+
+
+/*
+DATA WORK.TIRR_All;
+    SET DCE.FV_T_PORTCO_Transactions(WHERE Reference_Date<=%DATE 
+                                     AND Transaction_Type<>'LN05'     //LN - Other Income
+                                     AND Transaction_Type<>'LN07'     //LN - Upfront Orignation Fee Income
+									 AND Transaction_Type<>'EQ06'     //EQ - Upfront Orignation Fee Income   
+                                     );   
+RUN;
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\TIRR_ALL.xlsx" LABEL;
+   TABLE = WORK.TIRR_ALL  
+   SHEETNAME="TIRR_ALL";
+RUN;
+*/
+/*
+PROC FAQUERY Query="Private Debt and Equity\Directs - Net Book Value" (DATE=CDATE(%DATE));
+    TABLE "Default"  
+    OUT = WORK.NET_BOOK_VALUE;
+RUN;
+
+DATA WORK.NET_BOOK_VALUE (RENAME=(SECURITY_ID = SECURITY_COMPANY_ID) KEEP=NET_BOOK_VALUE SECURITY_ID PRINCIPAL CAPITALISED_INTERESTS ALL_OTHER_INCOME REALIZED_GAIN_LOSS TOTAL_VALUE REALIZED_COST);    //CURRENT_VALUATION
+    SET WORK.NET_BOOK_VALUE;
+RUN;
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+//LOANS FRONTSCRIPT
+//PROC PRINT DATA =  WORK.INVSTINS;title 'loans'; RUN; 
+
+//DATA WORK.INSTRPOS_LN (KEEP = POSITION_DATE COMPANY_NAME SECURITY_NAME EXIT CURRENTCOST PRINCIPAL LASTVALUATION SECURITY_ID );
+// BGT 2018-07-13: Upgrade issue, EXIT column from calc engine doesn't include INTERNALTRANS anymore
+%Let COLUMN_EXIT = "EXIT";
+DATA WORK.INSTRPOS_LN (KEEP = POSITION_DATE COMPANY_NAME SECURITY_NAME EXIT CURRENTCOST BALANCE LASTVALUATION SECURITY_ID REALIZEDCOST INTERNALTRANS REIMBURSEMENT ALLOTHERINCOME UNDRAWNCOMMITMENT);
+  SET DCE.REFINSTRUMENTPOSITIONS (WHERE POSITION_DATE = %DATE 
+									AND SECURITY_CLASS_NAME = "LOANS" 
+									AND LENGTH(COMPANY_NAME) > 0 );
+  @COLUMN_EXIT = Nz(@COLUMN_EXIT,0) + Nz(INTERNALTRANS,0);
+RUN;
+//PROC PRINT DATA = WORK.INSTRPOS_LN;title 'INSTRPOS_LN'; RUN;                                                                                                                                                                                              
+  
+   
+//DATA WORK.DIRLOAN_LIST(RENAME = (SECURITY_ID=SECURITY_COMPANY_ID POSITION_DATE=REFERENCE_DATE));
+DATA WORK.DIRLOAN_LIST(RENAME = (SECURITY_ID=SECURITY_COMPANY_ID POSITION_DATE=REFERENCE_DATE BALANCE=PRINCIPAL));
+  MERGE WORK.INVSTINS(IN=IN1) WORK.INSTRPOS_LN(IN=IN2);
+   BY SECURITY_ID;
+   If (IN1 and IN2) then Output;
+   End;
+RUN; 
+//PROC PRINT DATA = WORK.DIRLOAN_LIST;Title 'merge DIRLOAN_LIST '; RUN;                                                                                                                                                                                              
+
+
+/*
+DATA WORK.TIRR_ALL;
+    SET DCE.FV_T_PORTCO_TRANSACTIONS(WHERE REFERENCE_DATE<=%DATE 
+                                                  AND TRANSACTION_TYPE<>'LN05' 
+                                                  AND TRANSACTION_TYPE<>'LN07' 
+												  AND TRANSACTION_TYPE<>'EQ06');
+RUN;
+*/        //MB Commented out
+
+
+
+//VALUATION2 for unrealized and LOANACCRUALS_BALANCE2 for par_outstanding
+/*
+DATA WORK.PORTCO_POS_BY_SEC_ALL  (KEEP = SECURITY_COMPANY_ID COMPANY VALUATION2 LOANACCRUALS_BALANCE2);
+    SET DCE.FV_T_PORTCO_POSITIONS_BY_SECURITIES (WHERE REPORT_DATE = %DATE AND INVESTOR_ID <> "OTHER" AND LOANACCRUALS_BALANCE2 >=0);
+RUN;
+DATA WORK.PORTCO_POS_BY_SEC_ALL;
+    SET WORK.PORTCO_POS_BY_SEC_ALL;
+    COLUMN VALUATION_SEC TYPE = DOUBLE LABEL ="Last Valuation Security"; VALUATION_SEC = VALUATION2;
+    COLUMN BALANCE_SEC TYPE = DOUBLE LABEL = "Loan Accruals Security"; BALANCE_SEC = LOANACCRUALS_BALANCE2; 
+RUN;
+PROC MEANS DATA = WORK.PORTCO_POS_BY_SEC_ALL;
+    CLASS SECURITY_COMPANY_ID;
+    SUM VALUATION_SEC (NAME = VALUATION_SEC);
+    SUM BALANCE_SEC (NAME = BALANCE_SEC);
+
+RUN;
+
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\PDE_Transactions.xlsx";
+   TABLE = WORK.PORTCO_POS_BY_SEC_ALL
+   SHEETNAME="test transactions";
+RUN;
+*/
+/*
+//remove
+
+
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\PDE_Transactions.xlsx";
+   TABLE = WORK.PORTCO_POS_BY_SEC_ALL
+   SHEETNAME="test transactions";
+RUN;
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\PDE_Transactions.xlsx" LABEL;
+   TABLE = WORK.PORTCO_POS_BY_SEC_ALL
+   SHEETNAME="test transactions w labels";
+RUN;
+
+
+DATA WORK.VALUATIONS_ALL (WHERE TRANSACTION_TYPE = 'EQ30' OR TRANSACTION_TYPE = 'LN30');
+    SET WORK.TIRR_ALL;
+RUN;
+
+PROC MEANS DATA = WORK.VALUATIONS_ALL OUT = WORK.LAST_VALUATIONS_BY_DATE;
+    CLASS SECURITY_COMPANY_ID REFERENCE_DATE; 
+    VAR SECURITY_NAME; 
+    VAR COMPANY_NAME;
+    SUM VALUATION2 (NAME = SUM_LAST_VALUATION2);
+RUN;
+
+PROC SORT DATA = WORK.LAST_VALUATIONS_BY_DATE; BY COMPANY_NAME REFERENCE_DATE; RUN;
+
+PROC MEANS DATA = WORK.LAST_VALUATIONS_BY_DATE OUT = WORK.LAST_VALUATIONS;
+    CLASS SECURITY_COMPANY_ID; 
+    VAR  SECURITY_NAME; 
+    VAR  COMPANY_NAME;
+    VAR SUM_LAST_VALUATION2; 
+    MAX REFERENCE_DATE (NAME = MAX_REFERENCE_DATE);
+RUN;
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\directs_list.xlsx" LABEL;
+   TABLE = WORK.LAST_VALUATIONS_BY_DATE  
+   SHEETNAME="last valuations by date";
+RUN;
+
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\directs_list.xlsx" LABEL;
+   TABLE = WORK.LAST_VALUATIONS  
+   SHEETNAME="last valuations";
+RUN;
+*/
+//LN05, LN06 and EQ07 - Exclude Origination fees amortization transactions 
+// Fields  SECURITY_COMPANY_ID REFERENCE_DATE SECURITY_NAME COMPANY_NAME IRRNET 
+/*
+PROC MEANS DATA = WORK.TIRR_ALL
+    OUT=WORK.TIRR;
+    CLASS SECURITY_COMPANY_ID REFERENCE_DATE; 
+    VAR  SECURITY_NAME; 
+    VAR  COMPANY_NAME;
+    SUM CASH2(NAME=IRRNET);
+RUN;  
+*/            //MB commented out
+//PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\TIRR.xlsx" LABEL;
+//   TABLE = WORK.TIRR  
+//   SHEETNAME="TIRR";
+//RUN;
+
+//sorted for performance purposes   
+//rga cusip
+PROC SORT DATA = WORK.DIRLOAN_LIST;
+    BY SECURITY_COMPANY_ID REFERENCE_DATE;
+RUN;    
+
+//rga cusip
+PROC MEANS DATA =  WORK.DIRLOAN_LIST OUT=WORK.TVALUATION;
+  CLASS SECURITY_COMPANY_ID REFERENCE_DATE; 
+  VAR SECURITY_NAME;  
+  VAR COMPANY_NAME;     
+  SUM VALUATION(NAME=IRRNET); // 01/19/2022 MB changed from LASTVALUATION
+RUN; 
+
+  	         
+        
+DATA WORK.TIRR_LN;    //MB changed to WORK.TIRR_LN from WORK.TIRR
+  SET  WORK.TIRR(IN=T1) WORK.TVALUATION; 
+  IF IRRNET IS NULL 
+	THEN IRRNET=0; 
+  END; 
+  COLUMN SORT_IRR TYPE=INTEGER; 
+  IF T1 
+	THEN SORT_IRR=0;  
+   ELSE SORT_IRR=1; 
+		REFERENCE_DATE = %DATE;
+  END; 
+  _OUTPUT_=IRRNET <> 0 OR SORT_IRR=1;
+RUN; 
+  
+//---------------------------
+//get the Net Book Value from the query
+//Should the query live here? will some one change it on us? 
+//Should we create a folder special for this query?
+PROC FAQUERY Query="IT Admin - Program Queries\Directs - Net Book Value" (DATE=CDATE(%DATE));
+    TABLE "Default"  
+    OUT = WORK.NET_BOOK_VALUE;
+RUN;
+
+DATA WORK.NET_BOOK_VALUE (RENAME=(SECURITY_ID = SECURITY_COMPANY_ID) KEEP=NET_BOOK_VALUE SECURITY_ID PRINCIPAL CAPITALISED_INTERESTS ALL_OTHER_INCOME REALIZED_GAIN_LOSS REALIZED_COST);    //TOTAL_VALUE CURRENT_VALUATION
+    SET WORK.NET_BOOK_VALUE;
+RUN;
+
+//merge net book value query into the loan list
+DATA WORK.DIRLOAN_LIST; 
+  MERGE WORK.DIRLOAN_LIST(IN=IN1) WORK.NET_BOOK_VALUE; 
+  BY SECURITY_COMPANY_ID;
+  
+  
+  COLUMN V_EXIT TYPE=FLOAT LABEL = "Realized"; 
+  COLUMN CMPACTIVESTATUS TYPE=INTEGER;
+  
+  V_EXIT = REALIZED_COST + REALIZED_GAIN_LOSS + ALL_OTHER_INCOME;
+  
+  /*
+  If INTERNALTRANS <> 0
+	 THEN V_EXIT = REIMBURSEMENT + ALLOTHERINCOME;
+	ELSE 
+	  V_EXIT = EXIT; 
+  End; 
+  */
+   IF (IN1) THEN OUTPUT; END;
+  
+RUN;  
+
+//PROC PRINT DATA = WORK.DIRLOAN_LIST; title "Dir loans with ";RUN;
+
+//performance of the merge below WORK.DIRLOAN_LIST1
+/*
+PROC SORT DATA = WORK.TIRR; 
+  BY SECURITY_COMPANY_ID; 
+RUN; 
+*/        //MB commented out
+
+PROC SORT DATA = WORK.DIRLOAN_LIST;
+  BY SECURITY_COMPANY_ID; 
+RUN;
+
+/////////////////////////////////////
+//IRR by RGA CUSIP//////////////////
+
+
+//---------------------------ADD IRR to the DIRLOAN list
+//PROC PRINT DATA= WORK.DIRLOAN_LIST;title 'DIRLOAN_LIST********'; RUN;
+DATA WORK.DIRLOAN_LIST1;
+  MERGE WORK.DIRLOAN_LIST(IN=IN1) WORK.TIRR_LN(IN=IN2);    //MB changed to WORK.TIRR_LN from WORK.TIRR
+  By SECURITY_COMPANY_ID;
+  If (IN1 and IN2) then Output;
+  End;
+RUN;
+//PROC PRINT DATA= WORK.DIRLOAN_LIST1;title 'DIRLOAN_LIST1'; RUN;
+
+        
+        
+DATA WORK.DIRLOAN_LIST1; 
+  SET WORK.DIRLOAN_LIST1; 
+  //COLUMN Balance TYPE=FLOAT;
+  COLUMN INVST_TYPE TYPE = STRING LABEL = "Investment Type";
+  //COLUMN TOTALVALUE TYPE = FLOAT LABEL = "Total Value"; 
+  COLUMN PAR_OUTSTANDING TYPE = FLOAT LABEL = "Par / Outstanding";
+  
+  //if it's exited, then make the pik adn cash coupon 0% per request 20210215
+  IF FACILITY_STATUS = "Exited" 
+      THEN PIK = '0.0'; CASH_COUPON = '0.0';
+  END;
+  
+  //TOTALVALUE = TOTAL_VALUE;
+  
+  /*
+     If INTERNALTRANS <> 0
+        Then TOTALVALUE = V_EXIT + LASTVALUATION; 
+      Else  
+        TOTALVALUE = EXIT + LASTVALUATION;
+     End; 
+  */   
+     INVST_TYPE = "LOAN";
+     //PAR_VALUE = PRINCIPAL;
+     //PAR_OUTSTANDING = PRINCIPAL;
+RUN;    
+
+
+//EQUITIES FRONTSCRIPT
+//PROC PRINT DATA =  WORK.INVSTINS_EQ;title 'INVSTINS_EQ'; RUN;  
+																																																	
+// BGT 2018-07-13: Upgrade issue, EXIT column from calc engine doesn't include INTERNALTRANS anymore
+DATA WORK.INSTRPOS_EQ (KEEP = POSITION_DATE COMPANY_NAME SECURITY_NAME EXIT CURRENTCOST LASTVALUATION SECURITY_ID UNDRAWNCOMMITMENT);
+    SET DCE.REFINSTRUMENTPOSITIONS (WHERE POSITION_DATE=%DATE 
+								   AND SECURITY_CLASS_NAME <> "LOANS" 
+								   AND LENGTH(COMPANY_NAME)>0 );
+//@COLUMN_EXIT = Nz(@COLUMN_EXIT,0) + Nz(INTERNALTRANS,0);
+RUN;
+
+
+//PROC PRINT DATA = DCE.REFINSTRUMENTPOSITIONS; RUN;
+//PROC PRINT DATA = WORK.INSTRPOS_EQ; RUN;
+
+DATA WORK.DIREQUITY_LIST(RENAME = (SECURITY_ID=SECURITY_COMPANY_ID POSITION_DATE=REFERENCE_DATE));
+	MERGE WORK.INVSTINS_EQ(IN=IN1) WORK.INSTRPOS_EQ(IN=IN2);
+	BY SECURITY_ID;
+	If (IN1 and IN2) then Output;
+	End;
+    
+    COLUMN CMPACTIVESTATUS TYPE=INTEGER;
+RUN; 																					   
+//PROC PRINT DATA = WORK.DIREQUITY_LIST; RUN;
+
+PROC FAQUERY Query="IT Admin - Program Queries\Positions-PortRev" (DATE=%DATE) ; 
+	TABLE "Default"  OUT=WORK.QRY_POSITIONS_PORTREV;
+RUN;
+//PROC PRINT DATA=WORK.QRY_POSITIONS_PORTREV; RUN;
+
+DATA WORK.QRY_POSITIONS_PORTREV(DROP = LASTVALUATION COMMITMENT);
+	SET WORK.QRY_POSITIONS_PORTREV;
+	COLUMN CUSIP TYPE=STRING; 
+	CUSIP = ltrim(rtrim(Q_CUSIP)) ; 
+RUN;
+
+//PROC PRINT DATA=WORK.QRY_POSITIONS_PORTREV; RUN;
+
+DATA WORK.DIREQUITY_LIST;
+	MERGE WORK.DIREQUITY_LIST(IN=IN1) WORK.QRY_POSITIONS_PORTREV;
+	BY CUSIP;
+	If (IN1) then Output;
+	End;
+RUN; 
+//PROC PRINT DATA=WORK.DIREQUITY_LIST; RUN;
+
+
+//set GAAP_FAIR_VALUE to 0 if not LP_TYPE fund, per stan and kassy 12/14/2020
+DATA WORK.DIREQUITY_LIST(DROP=FUND_ID FUND INVESTORNAME GL_COST_ELIM GAAP_BOOK_VALUE);
+ MERGE WORK.DIREQUITY_LIST(IN=IN1) WORK.NET_BOOK_VALUE;
+    BY SECURITY_COMPANY_ID;
+    
+    
+  // COLUMN CURRENTCOST  TYPE=DOUBLE;  
+  COLUMN GAAP_BOOK_VALUE_TEMP TYPE = DOUBLE LABEL = "Book Value"; 
+  IF LP_TYPE = 'Fund' 
+      THEN GAAP_BOOK_VALUE = GAAP_BOOK_VALUE + GL_COST_ELIM;
+      //GAAP_FAIR_VALUE is existing data for Fund...
+  ELSEIF LP_TYPE = 'Company' 
+      THEN GAAP_BOOK_VALUE = NET_BOOK_VALUE;
+      //GAAP_FAIR_VALUE is null here as it is TBD...
+       GAAP_FAIR_VALUE = NULL;
+  END;
+  GAAP_BOOK_VALUE_TEMP = GAAP_BOOK_VALUE;
+  //GAAP_BOOK_VALUE = NET_BOOK_VALUE;
+  
+  IF (IN1) THEN OUTPUT; END;
+  
+RUN;
+//PROC PRINT DATA=WORK.DIREQUITY_LIST; RUN;
+
+DATA WORK.DIREQUITY_LIST (RENAME = (GAAP_BOOK_VALUE_TEMP = GAAP_BOOK_VALUE));
+    SET WORK.DIREQUITY_LIST;
+RUN;
+
+
+/*        
+PROC MEANS DATA =DCE.FV_T_PORTCO_TRANSACTIONS(WHERE REFERENCE_DATE <= %DATE 
+												AND TRANSACTION_TYPE<>'LN05' 
+												AND TRANSACTION_TYPE<>'LN07' 
+												AND TRANSACTION_TYPE<>'EQ06'
+											 )  OUT=WORK.TIRR_EQ;
+	CLASS SECURITY_COMPANY_ID REFERENCE_DATE; 
+	VAR  SECURITY_NAME; 
+	VAR  COMPANY_NAME;     
+	SUM CASH2(NAME=IRRNET);
+RUN; 
+ 
+*/            //MB commented out
+
+//sort to optimize the MEANS for WORK.TVALUAIONT_EQ
+PROC SORT DATA = WORK.DIREQUITY_LIST;
+    BY SECURITY_COMPANY_ID REFERENCE_DATE;
+RUN;
+        
+PROC MEANS DATA =  WORK.DIREQUITY_LIST OUT=WORK.TVALUATION_EQ;				   
+	CLASS SECURITY_COMPANY_ID REFERENCE_DATE; 
+	VAR SECURITY_NAME;  
+	VAR COMPANY_NAME;     
+	SUM VALUATION(NAME=IRRNET); // 01/19/2022 MB changed from LASTVALUATION
+RUN; 
+																	 
+
+DATA WORK.TIRR_EQ;
+	SET  WORK.TIRR(IN=T1) WORK.TVALUATION_EQ;             //MB changed to pull WORK.TIRR rather than WORK.TIRR_EQ
+							
+	IF IRRNET IS NULL THEN IRRNET=0; END; 
+	COLUMN SORT_IRR TYPE=INTEGER; 
+	IF T1 
+	  THEN SORT_IRR=0;  
+	 ELSE SORT_IRR=1; 
+	   REFERENCE_DATE=%DATE;
+	END; 
+	_OUTPUT_=IRRNET <>0 OR SORT_IRR=1;
+RUN; 
+														 
+//removed the other indexes, we only need ot match on SECURITY_COMPANY_ID
+PROC SORT DATA = WORK.TIRR_EQ; 
+    BY SECURITY_COMPANY_ID; //SECURITY_NAME COMPANY_NAME SORT_IRR REFERENCE_DATE; 
+RUN; 
+        
+DATA WORK.DIREQUITY_LIST1;
+	MERGE WORK.DIREQUITY_LIST(IN=IN1) WORK.TIRR_EQ(IN=IN2);        
+	BY SECURITY_COMPANY_ID;
+	If (IN1 and IN2) then Output;
+	End;
+RUN;
+																					 
+																																													
+DATA WORK.DIREQUITY_LIST1; 
+	SET WORK.DIREQUITY_LIST1; 
+	COLUMN INVST_TYPE TYPE = STRING LABEL = "Investment Type";
+    //COLUMN TOTALVALUE TYPE=FLOAT LABEL = "Total Value";
+    //COLUMN PAR_VALUE TYPE = FLOAT;
+    COLUMN V_EXIT TYPE = FLOAT LABEL = "Realized";
+    COLUMN FIXED_FLOATING TYPE= 'STRING' LABEL= 'Fixed / Floating'; 
+    
+    FIXED_FLOATING = 'NA';
+	INVST_TYPE = "EQUITY";
+    
+    //replace old calculation with the values from query builder Net Book Value query
+    //TOTALVALUE = TOTAL_VALUE;
+    V_EXIT = REALIZED_COST + REALIZED_GAIN_LOSS + ALL_OTHER_INCOME;
+    
+    //TOTALVALUE= EXIT + LASTVALUATION;
+    //PAR_VALUE = TOTALVALUE;
+    //V_EXIT = EXIT ;     
+RUN;
+
+/*------------------Direct LLC Corps-----------*/ 
+
+/*------------------?. Direct All Investments-----------*/ 
+
+//combine equities and loans into one list to feed the dashboard
+DATA WORK.DIRALL_LIST1 (DROP = TOTAL_VALUE);
+    SET WORK.DIREQUITY_LIST1 WORK.DIRLOAN_LIST1;
+RUN;
+
+DATA WORK.DIRALL_LIST1;
+    SET WORK.DIRALL_LIST1;
+    COLUMN TOTALVALUE TYPE=FLOAT LABEL = "Total Value";
+    
+    TOTALVALUE = V_EXIT + VALUATION;
+RUN;
+
+PROC SORT DATA = WORK.DIRALL_LIST1;
+    BY COMPANY_ID;
+RUN;
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\DIRALL_LIST1.xlsx" LABEL;
+   TABLE = WORK.DIRALL_LIST1  
+   SHEETNAME="DIRALL_LIST1";
+RUN;
+*/
+//Get the status of a company by the instrument statuses...
+
+//get the instruments that are active
+DATA WORK.ACTIVE_CMP (WHERE FACILITY_STATUS = 'Active');
+    SET WORK.DIRALL_LIST1;
+RUN;
+
+//aggregate this list of active instruments down to the distinct companies
+PROC MEANS DATA = WORK.ACTIVE_CMP OUT = WORK.ACTIVE_CMP_LIST;
+    CLASS COMPANY_ID;
+RUN;
+
+PROC SORT DATA = WORK.ACTIVE_CMP_LIST;
+    BY COMPANY_ID;
+RUN;
+
+/*
+//add this to get the transaction currency for par/outstanding and Unrealized...
+DATA WORK.DIRALL_LIST1;
+    MERGE WORK.DIRALL_LIST1(IN=IN1) WORK.PORTCO_POS_BY_SEC_ALL(IN=IN2);
+    BY SECURITY_COMPANY_ID;
+    IF (IN1 AND IN2) THEN OUTPUT;
+    END;
+RUN;
+*/
+
+//PROC PRINT DATA = WORK.DIRALL_LIST1 (WHERE CUSIP ='G8111#AA6' KEEP = CUSIP V_EXIT CURRENT_VALUATION LASTVALUATION TOTALVALUE); RUN;
+
+//merge the active companies back into the original combined list, set the status to active if it's in the active list
+DATA WORK.DIRALL_LIST1;
+    MERGE WORK.DIRALL_LIST1 (IN=IN_LEFT) WORK.ACTIVE_CMP_LIST (IN=IN_RIGHT);
+    BY COMPANY_ID;
+    
+    
+    COLUMN IRR_TEMP TYPE=DOUBLE LABEL="IRR"; IRR_TEMP = IRRNET;
+    //COLUMN GAAP_BOOK_VALUE TYPE=DOUBLE LABEL="GAAP Book Value"; 
+    COLUMN UNREALIZED TYPE=DOUBLE LABEL="Unrealized"; UNREALIZED = VALUATION; //CURRENT_VALUATION;//LASTVALUATION;            //001
+    
+    //Make Unrealized be 0 when NULL
+    IF UNREALIZED = NULL THEN UNREALIZED = 0.0; END;
+    //Make Realized (V_EXIT) be 0 when NULL
+    IF V_EXIT = NULL THEN V_EXIT = 0.0; END;
+    
+    COLUMN COMPANY_STATUS TYPE=STRING LABEL = "Company Status";
+    COLUMN TOTAL_COUPON TYPE=STRING LABEL = "Total Coupon"; 
+    COLUMN UNFUNDED_COMMITMENT TYPE=DOUBLE LABEL = "Unfunded Commitment"; //UNFUNDED_COMMITMENT = (COMMITMENT - INVESTMENT);
+    
+    
+    //This is calculated here instead of an expression in dashboard so that Grand Totals can be displayed as a sum
+    /*IF ((COMMITMENT - INVESTMENT)<0) 
+        THEN UNFUNDED_COMMITMENT = 0;
+    ELSE UNFUNDED_COMMITMENT = COMMITMENT - INVESTMENT;
+    END;*/
+    
+    UNFUNDED_COMMITMENT = UNDRAWNCOMMITMENT;    // 02/13/2022 MB Changed
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
+    IF INVST_TYPE = 'LOAN'
+        THEN GAAP_BOOK_VALUE = NULL;
+            PAR_OUTSTANDING = PRINCIPAL + CAPITALISED_INTERESTS;
+    END;
+    
+    
+    //clean up null values here...
+    IF PAR_OUTSTANDING IS NULL
+        THEN PAR_OUTSTANDING = 0.0;
+    END;
+    
+    //Ratings logic...
+    
+    //placeholder ratings
+    RGA_PLACEHOLDER_RATING = LOOKUPDYN("Ratings", "METATEXT1", RGA_PLACEHOLDER_RATING);
+    RGA_PLACEHOLDER_INS_RATING = LOOKUPDYN("Ratings", "METATEXT1", RGA_PLACEHOLDER_INS_RATING);
+    
+   //NR for ratings columns that are not populated
+    IF EGAN_RATING IS NULL AND RGA_PLACEHOLDER_RATING IS NULL THEN EGAN_RATING = 'NR';
+        ELSEIF EGAN_RATING IS NULL AND RGA_PLACEHOLDER_RATING IS NOT NULL THEN EGAN_RATING = RGA_PLACEHOLDER_RATING;
+        ELSE EGAN_RATING = LOOKUPDYN("Ratings","METATEXT1",EGAN_RATING);
+    END;
+    
+    IF NAIC_RATING IS NULL THEN NAIC_RATING = 'NR';
+    //checks if old ratings are presented first...
+        IF NAIC_RATING = '1' THEN NAIC_RATING = '45';
+            ELSEIF NAIC_RATING = '2' THEN NAIC_RATING = '46';
+            ELSEIF NAIC_RATING = '3' THEN NAIC_RATING = '47';
+            ELSEIF NAIC_RATING = '4' THEN NAIC_RATING = '48';
+            ELSEIF NAIC_RATING = '5' THEN NAIC_RATING = '49';
+            ELSEIF NAIC_RATING = '6' THEN NAIC_RATING = '50';
+            END;
+        ELSE NAIC_RATING = LOOKUPDYN("Ratings","METATEXT1", NAIC_RATING);
+    END;
+    
+    IF PDE_RATING IS NULL THEN PDE_RATING = 'NR';
+        ELSE PDE_RATING = LOOKUPDYN("Ratings","METATEXT1", PDE_RATING);
+    END; 
+    
+    IF EGAN_INS_RATING IS NULL AND RGA_PLACEHOLDER_INS_RATING IS NULL THEN EGAN_INS_RATING = 'NR';
+        ELSEIF EGAN_INS_RATING IS NULL AND RGA_PLACEHOLDER_INS_RATING IS NOT NULL THEN EGAN_INS_RATING = RGA_PLACEHOLDER_INS_RATING;
+        ELSE EGAN_INS_RATING = LOOKUPDYN("Ratings","METATEXT1", EGAN_INS_RATING);
+    END;
+    
+    IF NAIC_INS_RATING IS NULL THEN NAIC_INS_RATING = 'NR';
+        //check if getting the old numeric ratings 1 through 6 and then redefine to new numbering scheme so LOOKUPDYN() will translate this right.
+        IF NAIC_INS_RATING = '1' THEN NAIC_INS_RATING = '45';
+            ELSEIF NAIC_INS_RATING = '2' THEN NAIC_INS_RATING = '46';
+            ELSEIF NAIC_INS_RATING = '3' THEN NAIC_INS_RATING = '47';
+            ELSEIF NAIC_INS_RATING = '4' THEN NAIC_INS_RATING = '48';
+            ELSEIF NAIC_INS_RATING = '5' THEN NAIC_INS_RATING = '49';
+            ELSEIF NAIC_INS_RATING = '6' THEN NAIC_INS_RATING = '50';
+            END;
+        
+    ELSE NAIC_INS_RATING = LOOKUPDYN("Ratings","METATEXT1", NAIC_INS_RATING);
+    END;
+    
+   
+    
+    
+    
+    IF PDE_SCORE IS NULL
+        THEN PDE_SCORE = 'NR';
+    END;
+    IF EGAN_CMP_RATING_EXPIRATION_DATE IS NULL
+        THEN EGAN_CMP_RATING_EXPIRATION_DATE = 'NR';
+    END;
+    
+    IF CASH_COUPON IS NULL AND PIK IS NULL
+        THEN TOTAL_COUPON = NULL;
+    END;
+    
+    IF FACILITY_STATUS = 'Exited'
+        THEN %FX_RATE_DATE = EXIT_DATE;
+        ELSE %FX_RATE_DATE = %DATE;
+    END;
+    
+    IF (IN_LEFT AND IN_RIGHT)
+        THEN COMPANY_STATUS = 'Active';
+        ELSE COMPANY_STATUS = 'Exited';
+    END;
+    
+    //this is incase the RGA CUSIP field is not filled out, it takes on the CUSIP value
+    IF RGA_CUSIP IS NULL 
+        THEN RGA_CUSIP = CUSIP;
+    END;
+    
+    //this is to convert currencies that are non-usd instruments 
+    IF INST_CURR <> 'USD' 
+        THEN 
+           COMMITMENT = CONVERTCURR(COMMITMENT, INST_CURR, 'USD', %FX_RATE_DATE);
+           INVESTMENT = CONVERTCURR(INVESTMENT, INST_CURR, 'USD', %FX_RATE_DATE);
+           PAR_OUTSTANDING = CONVERTCURR(PAR_OUTSTANDING, INST_CURR, 'USD', %FX_RATE_DATE);
+           
+           //need this otherwise blank/null loans will convert to $0 
+           //THIS NEEDS TO BE REMOVED WHEN LOANS HAVE THIS!
+           IF (INVST_TYPE = 'EQUITY') 
+               THEN 
+               GAAP_BOOK_VALUE = CONVERTCURR(GAAP_BOOK_VALUE, INST_CURR, 'USD', %FX_RATE_DATE);
+               GAAP_FAIR_VALUE = CONVERTCURR(GAAP_FAIR_VALUE, INST_CURR,'USD', %FX_RATE_DATE);
+           END;
+           
+           //V_EXIT is Realized
+           V_EXIT = CONVERTCURR(V_EXIT, INST_CURR, 'USD', %FX_RATE_DATE);
+           UNREALIZED = CONVERTCURR(UNREALIZED, INST_CURR, 'USD', %FX_RATE_DATE);
+           TOTALVALUE = CONVERTCURR(TOTALVALUE, INST_CURR, 'USD', %FX_RATE_DATE);
+           
+           //IRR convert to USD
+           IRR_TEMP = CONVERTCURR(IRR_TEMP, INST_CURR, 'USD', %FX_RATE_DATE);
+    END;
+    
+    
+    //fill out NA for null rows
+       
+    //TODO: check if you can add with nulls, that way this  have to be confusing and long winded...
+    //TOTAL_COUPON calc and foramting
+    IF (CASH_COUPON IS NULL AND PIK IS NOT NULL) THEN TOTAL_COUPON = TOSTR(0.0 + TODBL(PIK)/100.00); 
+        ELSEIF (PIK IS NULL AND CASH_COUPON IS NOT NULL) THEN TOTAL_COUPON = TOSTR(0.0 + TODBL(CASH_COUPON)); 
+        ELSEIF (PIK IS NULL AND CASH_COUPON IS NULL) THEN TOTAL_COUPON = 'NA';
+        ELSE TOTAL_COUPON = TOSTR((TODBL(CASH_COUPON)) + (TODBL(PIK)/100.00)); 
+    END;
+    IF TOTAL_COUPON <> 'NA' THEN TOTAL_COUPON = FORMAT(TOTAL_COUPON,%PERCENT_FORMAT_TWO_DEC); END; 
+    
+    
+    IF CASH_COUPON IS NOT NULL THEN
+        CASH_COUPON = FORMAT(TOSTR(TODBL(CASH_COUPON)),%PERCENT_FORMAT_TWO_DEC);
+        ELSE CASH_COUPON = 'NA';
+    END;
+  
+    IF PIK IS NOT NULL THEN 
+        PIK = FORMAT(TOSTR(TODBL(PIK)/100.00),%PERCENT_FORMAT_TWO_DEC);
+        ELSE PIK = 'NA';
+    END;
+     
+    IF SPREAD IS NOT NULL THEN 
+        SPREAD = FORMAT(SPREAD,%PERCENT_FORMAT_TWO_DEC);
+        ELSE SPREAD = 'NA';
+    END;
+    
+    IF FLOOR IS NOT NULL THEN 
+        FLOOR = FORMAT(TOSTR(TODBL(FLOOR)/100.00),%PERCENT_FORMAT_TWO_DEC);
+        ELSE FLOOR = 'NA';
+    END;
+   
+    IF CAP IS NOT NULL THEN 
+        CAP = FORMAT(TOSTR(TODBL(CAP)/100.00),%PERCENT_FORMAT_TWO_DEC);
+        ELSE CAP = 'NA';
+    END;
+    
+    IF AMORTIZATION IS NULL THEN AMORTIZATION = 'NA'; END;
+    
+    IF FIXED_FLOATING IS NULL THEN FIXED_FLOATING = 'NA'; END;
+    
+    //add 0.0 minimums to commitment, investment, unfunded committment, par/outstanding 
+    //(from: Kassy, RE: dashboard round 2, 20210520)
+    IF (COMMITMENT IS NULL) OR (COMMITMENT < 0) THEN COMMITMENT = 0.0; END;
+    IF (INVESTMENT IS NULL) OR (INVESTMENT < 0) THEN INVESTMENT = 0.0; END;
+    IF (UNFUNDED_COMMITMENT IS NULL) OR (UNFUNDED_COMMITMENT < 0) THEN UNFUNDED_COMMITMENT = 0.0; END;
+    IF (PAR_OUTSTANDING IS NULL) OR (PAR_OUTSTANDING < 0) THEN PAR_OUTSTANDING = 0.0; END;
+    
+    //If “Exit Date” is not null and = report date parameter, the following columns should be zero:
+    //(from: Kassy, RE: dashboard round 2, 20210520)
+    IF ((EXIT_DATE IS NOT NULL OR EXIT_DATE <> '') AND EXIT_DATE <= DML(%DATE)) THEN UNFUNDED_COMMITMENT = 0.0; PAR_OUTSTANDING = 0.0; UNREALIZED = 0.0; END;
+    
+    //INVESTMENT_DATE = FORMAT(INVESTMENT_DATE, "mm/dd/yy");
+    //EGAN_CMP_RATING_EXPIRATION_DATE = FORMAT(EGAN_CMP_RATING_EXPIRATION_DATE, "mm/dd/yy");
+    //MATURITY_DATE = FORMAT(MATURITY_DATE, "mm/dd/yy");
+    
+    //Requested the RGA_CUSIP = CUSIP. 
+    //Need to comment this so we can test irr for RGA CUSIP
+    //RGA_CUSIP = CUSIP;   
+    
+    //Hardcoded override updates here...
+    IF (CUSIP = '21985#AA9') 
+    THEN 
+        FACILITY = 'Preferred Equity';
+        SENIORITY = 'Preferred Equity';
+        COLLATERAL = 'NA';
+        UNITRANCHE_MEZZ = 'NA';
+        INVST_TYPE = 'EQUITY';
+        
+    ELSEIF (CUSIP = '00456#105')
+    THEN
+        FACILITY = 'Junior Sub. Debt';
+        SENIORITY = 'Subordinated Debt';
+        COLLATERAL = 'Unsecured';
+        UNITRANCHE_MEZZ = 'Mezzanine';
+        INVST_TYPE = 'LOAN';
+        
+	ELSEIF (CUSIP = '87325#127')
+	THEN
+        FACILITY = 'Junior Sub. Debt';
+        SENIORITY = 'Subordinated Debt';
+        COLLATERAL = 'Unsecured';
+        UNITRANCHE_MEZZ = 'Mezzanine';
+        INVST_TYPE = 'LOAN';
+        
+    END;
+    //End Hardcodes here...
+    
+    
+//this creates the status for By Company tab to show the debt/equity instruments
+    COLUMN INSTRUMENT_TYPE_DEBT_EQUITY TYPE=STRING LABEL = "Type";
+    IF (INVST_TYPE = 'LOAN') THEN INSTRUMENT_TYPE_DEBT_EQUITY = "Debt"; ELSE INSTRUMENT_TYPE_DEBT_EQUITY = "Equity"; END;
+    
+    //this is same as INSTRUMENT_TYPE_DEBT_EQUITY, but for the new Debt/Equity column in BY CUSIP tab
+    COLUMN DEBT_EQUITY TYPE=STRING LABEL = "Debt/Equity";
+    IF (INVST_TYPE = 'LOAN') THEN DEBT_EQUITY = "Debt"; ELSE DEBT_EQUITY = "Equity"; END;
+    
+    //helper column used to pick the min investment date... drop later...
+    COLUMN INVESTMENT_DATE_DT TYPE=DATE;
+    INVESTMENT_DATE_DT = TODAT(INVESTMENT_DATE);
+    
+    //helper column used to pick the min exit date... drop later...
+    COLUMN EXIT_DATE_DT TYPE=DATE;
+    EXIT_DATE_DT = TODAT(EXIT_DATE);
+    
+    
+RUN;
+
+//PROC PRINT DATA = WORK.DIRALL_LIST1; RUN;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+/*Hard coding starts here...*/
+//TODO: remove this after analzinging the fields
+//Then set up the conditions and hard code ht values:
+/*
+Version 3 Specs:
+
+When CUSIP is 2198#AA9: 
+
+Facility = Preferred Equity
+Seniority = Preferred Equity
+Uni/2nd/Mezz = NA
+Collateral = NA
+Maturity Date = NA
+Fixed / Floating = NA
+?PIK Coupon = NA
+Total Coupon = NA 
+*/
+
+//Examine the data useingthe same export
+//Set up new dashboard and use this data source
+//Does  check out with the V2 dashbord with the intended Changes?
+//Check the portfolio snapshot pages and hers
+//Check the API code set up similar changes
+
+
+
+
+//find the minimum investment year by RGA CUSIP 
+PROC MEANS DATA = WORK.DIRALL_LIST1 (WHERE RGA_CUSIP <> CUSIP) OUT = WORK.DIRALL_LIST1_MIN_INVST_DATE;
+    CLASS RGA_CUSIP;
+    MIN INV_YEAR (NAME=INV_YEAR_MIN);
+RUN;
+//make the minimum investment year the one used for vintage when the min investment year is in DIRALL_LIST1_MIN_INVST_DATE
+DATA WORK.DIRALL_LIST1 (DROP = INV_YEAR_MIN);
+	MERGE WORK.DIRALL_LIST1(IN=IN1) WORK.DIRALL_LIST1_MIN_INVST_DATE(IN=IN2);
+	BY RGA_CUSIP;
+    
+	IF (INV_YEAR_MIN IS NOT NULL) THEN INV_YEAR = INV_YEAR_MIN;
+	END;
+RUN;
+
+
+//find platform investment date of company by the earliest Investment Date, so group CUSIPs by Company and then pick min/earliest investment date.
+PROC MEANS DATA = WORK.DIRALL_LIST1 OUT = WORK.DIRALL_LIST1_MIN_INVST_DATE_FOR_COMPANY;
+    CLASS COMPANY;
+    MIN INVESTMENT_DATE_DT (NAME=PLATFORM_INVESTMENT_DATE_DT LABEL = "Platform Investment Date");
+RUN;
+//FORMAT(PLATFORM_INVESTMENT_DATE,"yyyy-MM-dd-HHmmss")
+DATA WORK.DIRALL_LIST1;
+    MERGE WORK.DIRALL_LIST1(IN=IN1) WORK.DIRALL_LIST1_MIN_INVST_DATE_FOR_COMPANY(IN=IN2);
+    BY COMPANY;
+    
+    COLUMN PLATFORM_INVESTMENT_DATE TYPE=STRING; 
+    PLATFORM_INVESTMENT_DATE = FORMAT(TOSTR(PLATFORM_INVESTMENT_DATE_DT), 'MM/dd/yy');
+RUN;
+
+//only include where company_status is exited
+PROC MEANS DATA = WORK.DIRALL_LIST1 (WHERE COMPANY_STATUS = 'Exited') OUT = WORK.DIRALL_LIST1_MAX_EXIT_DATE_FOR_COMPANY;
+    CLASS COMPANY;
+    MAX EXIT_DATE_DT (NAME=PLATFORM_EXIT_DATE_DT LABEL="Platform Exit Date");
+RUN;
+
+DATA WORK.DIRALL_LIST1;
+    MERGE WORK.DIRALL_LIST1(IN=IN1) WORK.DIRALL_LIST1_MAX_EXIT_DATE_FOR_COMPANY(IN=IN2);
+    BY COMPANY;
+    
+    COLUMN PLATFORM_EXIT_DATE TYPE = STRING;
+    PLATFORM_EXIT_DATE = FORMAT(TOSTR(PLATFORM_EXIT_DATE_DT),'MM/dd/yy');
+    //null/blank dates display as 'MM/dd/yy' instead of blank/null... this is to fix that...
+    IF (PLATFORM_EXIT_DATE = 'MM/dd/yy') THEN PLATFORM_EXIT_DATE = NULL; END;
+    
+RUN;
+
+DATA WORK.DIRALL_LIST1 (DROP=INVESTMENT_DATE_DT EXIT_DATE_DT INVESTMENT_DATE_DT PLATFORM_EXIT_DATE_DT);
+    SET WORK.DIRALL_LIST1;
+RUN;
+
+//DROP = INVESTMENT_DATE_DT EXIT_DATE_DT INVESTMENT_DATE_DT PLATFORM_EXIT_DATE_DT
+
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\DIRALL_LIST1.xlsx";
+   TABLE = WORK.DIRALL_LIST1
+   SHEETNAME="DIRALL_LIST1";
+RUN;
+*/
+
+//sort by company field
+PROC SORT DATA = WORK.DIRALL_LIST1;
+    BY short_code;
+RUN;
+
+//Sponsor IRR here...
+DATA USER.SPONSOR_IRR (KEEP = SPONSOR REFERENCE_DATE IRR_TEMP);
+    SET WORK.DIRALL_LIST1;
+RUN;
+
+//RGA CUSIP IRR here...
+DATA WORK.RGA_CUSIP_IRR;
+    SET WORK.DIRALL_LIST1;    
+RUN;
+
+///sum the cashflows (as is the common pattern) by RGA_CUSIP and Reference date
+PROC MEANS DATA = WORK.RGA_CUSIP_IRR OUT = WORK.RGA_CUSIP_IRR;
+    CLASS RGA_CUSIP REFERENCE_DATE; 
+	VAR  CUSIP;    
+	SUM IRR_TEMP(NAME=RGA_CUSIP_IRR_CASHFLOWS_SUMMED);
+RUN;
+
+//order the cashflows by RGA_CUSIP and REFERENCE DATE so they combine in ascending order or date
+PROC SORT DATA = WORK.RGA_CUSIP_IRR;
+    BY RGA_CUSIP REFERENCE_DATE;
+RUN; 
+
+PROC MEANS DATA = WORK.RGA_CUSIP_IRR OUT = WORK.RGA_CUSIP_IRR;
+    CLASS RGA_CUSIP;
+    IRR RGA_CUSIP_IRR_CASHFLOWS_SUMMED(NAME = RGA_CUSIP_IRR LABEL = "RGA CUSIP IRR" DATE=REFERENCE_DATE);
+RUN;
+
+DATA WORK.RGA_CUSIP_IRR;
+    SET WORK.RGA_CUSIP_IRR;
+    IF(RGA_CUSIP_IRR IS NULL) THEN RGA_CUSIP_IRR = 0.0; END;
+RUN;
+
+//RGA CUSIP MOC here...
+DATA WORK.RGA_CUSIP_MOC;
+    SET WORK.DIRALL_LIST1;    
+RUN;
+//group up RGA_CUSIPS and CUSIP and include the numbers for totalvalue and investment for each, this is because we have tons of rows for every cashflow of every cusip, now it will just be by cusip/rga usip
+PROC MEANS DATA = WORK.RGA_CUSIP_MOC OUT = WORK.RGA_CUSIP_MOC;
+    CLASS RGA_CUSIP CUSIP; 
+    VAR TOTALVALUE;
+    VAR INVESTMENT;
+RUN;
+//sum the total value and investment amount by RGA cusip
+PROC MEANS DATA = WORK.RGA_CUSIP_MOC OUT = WORK.RGA_CUSIP_MOC;
+    CLASS RGA_CUSIP;
+    SUM TOTALVALUE(NAME=RGA_CUSIP_TOTALVALUE_SUMMED);
+    SUM INVESTMENT(NAME=RGA_CUSIP_INVESTMENT_SUMMED);
+RUN;
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\RGA_CUSIP_MOC.xlsx";
+   TABLE = WORK.RGA_CUSIP_MOC
+   SHEETNAME="RGA_CUSIP_MOC";
+RUN;
+*/
+//PROC PRINT DATA = WORK.RGA_CUSIP_MOC; RUN;
+//calculate RGA CUSIP MOC
+
+DATA WORK.RGA_CUSIP_MOC;
+    SET WORK.RGA_CUSIP_MOC;
+    COLUMN RGA_CUSIP_MOC TYPE=DOUBLE LABEL="RGA CUSIP MOC";
+    
+    //By default a division by 0 will be "Infinity" when printed to the dashboard, make it NULL instead because no one cares about that formating
+    IF RGA_CUSIP_TOTALVALUE_SUMMED = 0 AND RGA_CUSIP_INVESTMENT_SUMMED <> 0 
+        THEN RGA_CUSIP_MOC = 0.0; 
+    ELSEIF RGA_CUSIP_INVESTMENT_SUMMED = 0
+        THEN RGA_CUSIP_MOC = RGA_CUSIP_TOTALVALUE_SUMMED/0.01;
+    ELSE RGA_CUSIP_MOC = RGA_CUSIP_TOTALVALUE_SUMMED/RGA_CUSIP_INVESTMENT_SUMMED;
+    END;
+RUN;
+
+//PROC PRINT DATA = WORK.RGA_CUSIP_MOC_TEMP; RUN;
+//JOIN IRR and MOC at RGA CUSIP level cubes  the main Directs list
+DATA WORK.DIRALL_LIST1;
+	MERGE WORK.DIRALL_LIST1(IN=IN1) WORK.RGA_CUSIP_MOC(IN=IN2) WORK.RGA_CUSIP_IRR(IN=IN3);
+	BY RGA_CUSIP;
+	If (IN1 and IN2 AND IN3) then Output;
+	End;
+RUN;
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\DIRALL_LIST1.xlsx";
+   TABLE = WORK.DIRALL_LIST1
+   SHEETNAME="DIRALL_LIST1";
+RUN;
+*/
+//write the cube back to disk to be consumed
+DATA USER.DIRALL_LIST1;
+    SET WORK.DIRALL_LIST1; 
+RUN;
+
+//By Company report would like the status of each type of facility to be grouped into debt or equity. 
+//If any of the debt or equity records are active, then we list the status of that instrument type on that company as active.
+//To do this, we just asign a 1 to active facilities and a 0 to all others, this will make companies that have exited debt show as a sum of 0 and so we can label all 0 marked records as Exited and everything > 0 as Active
+//Literally the only way I could figure out how to arrange the a so this status would work.
+DATA WORK.DIRALL_LIST1;
+    SET WORK.DIRALL_LIST1; 
+     COLUMN ACTIVE_EXITED_TYPE TYPE = INTEGER;
+     IF FACILITY_STATUS = 'Active' THEN ACTIVE_EXITED_TYPE = 1; ELSE ACTIVE_EXITED_TYPE = 0; END;
+RUN;
+
+PROC MEANS DATA = WORK.DIRALL_LIST1 OUT = WORK.DIRALL_COMPANY_INVST_TYPE_STATUS;
+    CLASS COMPANY INVST_TYPE;
+    SUM ACTIVE_EXITED_TYPE(NAME = INVST_TYPE_STATUS);
+RUN;
+
+DATA WORK.DIRALL_LIST_BY_COMPANY (DROP = FACILITY_STATUS INVST_TYPE_STATUS);
+    MERGE WORK.DIRALL_LIST1 (IN=IN1) WORK.DIRALL_COMPANY_INVST_TYPE_STATUS (IN=IN2);
+    BY COMPANY INVST_TYPE;
+    
+    /*
+    //this creates the status for By Company tab to show the debt/equity instruments
+    COLUMN INSTRUMENT_TYPE_DEBT_EQUITY TYPE=STRING LABEL = "Type";
+    IF (INVST_TYPE = 'LOAN') THEN INSTRUMENT_TYPE_DEBT_EQUITY = "Debt"; ELSE INSTRUMENT_TYPE_DEBT_EQUITY = "Equity"; END;
+    */
+    
+    //The status of the Debt or Equity by company, active if any are active for each company
+    COLUMN STATUS TYPE = STRING LABEL = "Status"; 
+    IF INVST_TYPE_STATUS > 0 THEN STATUS = 'Active'; ELSE STATUS = 'Exited'; END; //STATUS = FACILITY_STATUS;
+RUN;
+
+DATA USER.DIRALL_LIST_BY_COMPANY;
+    SET WORK.DIRALL_LIST_BY_COMPANY;
+RUN;
+
+
+
+
+
