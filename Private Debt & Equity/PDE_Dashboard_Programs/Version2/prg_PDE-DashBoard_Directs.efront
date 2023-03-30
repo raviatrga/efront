@@ -899,7 +899,7 @@ RUN;
 
 
 
-//EQUITES QUERY
+//EQUITIES QUERY
 
 /*------------------Direct Mezz by Vintage-------------*/ 
 
@@ -2101,18 +2101,8 @@ DATA WORK.DIRLOAN_LIST;
   BY SECURITY_COMPANY_ID;
   
   
-  COLUMN V_EXIT TYPE=FLOAT LABEL = "Realized"; 
   COLUMN CMPACTIVESTATUS TYPE=INTEGER;
   
-  V_EXIT = REALIZED_COST + REALIZED_GAIN_LOSS + ALL_OTHER_INCOME;
-  
-  /*
-  If INTERNALTRANS <> 0
-	 THEN V_EXIT = REIMBURSEMENT + ALLOTHERINCOME;
-	ELSE 
-	  V_EXIT = EXIT; 
-  End; 
-  */
    IF (IN1) THEN OUTPUT; END;
   
 RUN;  
@@ -2160,13 +2150,6 @@ DATA WORK.DIRLOAN_LIST1;
   
   //TOTALVALUE = TOTAL_VALUE;
   
-  /*
-     If INTERNALTRANS <> 0
-        Then TOTALVALUE = V_EXIT + LASTVALUATION; 
-      Else  
-        TOTALVALUE = EXIT + LASTVALUATION;
-     End; 
-  */   
      INVST_TYPE = "LOAN";
      //PAR_VALUE = PRINCIPAL;
      //PAR_OUTSTANDING = PRINCIPAL;
@@ -2307,19 +2290,11 @@ DATA WORK.DIREQUITY_LIST1;
 	COLUMN INVST_TYPE TYPE = STRING LABEL = "Investment Type";
     //COLUMN TOTALVALUE TYPE=FLOAT LABEL = "Total Value";
     //COLUMN PAR_VALUE TYPE = FLOAT;
-    COLUMN V_EXIT TYPE = FLOAT LABEL = "Realized";
     COLUMN FIXED_FLOATING TYPE= 'STRING' LABEL= 'Fixed / Floating'; 
     
     FIXED_FLOATING = 'NA';
 	INVST_TYPE = "EQUITY";
     
-    //replace old calculation with the values from query builder Net Book Value query
-    //TOTALVALUE = TOTAL_VALUE;
-    V_EXIT = REALIZED_COST + REALIZED_GAIN_LOSS + ALL_OTHER_INCOME;
-    
-    //TOTALVALUE= EXIT + LASTVALUATION;
-    //PAR_VALUE = TOTALVALUE;
-    //V_EXIT = EXIT ;     
 RUN;
 
 /*------------------Direct LLC Corps-----------*/ 
