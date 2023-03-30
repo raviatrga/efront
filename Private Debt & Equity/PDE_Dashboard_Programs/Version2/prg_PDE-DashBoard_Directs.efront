@@ -192,6 +192,8 @@ DATA WORK.INVSTINS;
                       --WHEN MIN(InvOp.CloseDate) <= " & DML(%DATE) & " AND (ISNULL(MIN(InvIns.UserDate2), 1) = 1) THEN 'Active'
                       ELSE 'Exited'
                   END as FACILITY_STATUS
+
+            ,SUM((CASE WHEN A.Code IN ('LN06', 'LN21', 'LN41', 'LN61') THEN A.AMOUNT2 ELSE 0 END)) as V_EXIT
             
             FROM VCINVESTMENTINS INVINS 
            
@@ -515,7 +517,7 @@ DATA WORK.INVSTINS;
                 AND OuterOp.DRAFT=0
                 AND (OuterOp.CANCELLED=0 OR OuterOp.CANCELLED IS NULL)
 				AND OuterOp.CLOSEDATE <=  " & DML(%DATE) & "  
-                AND (OuterOp.TypeInvestOp IN ('LN01','LN03','LN02','LN70','LN71','LN81','LN82')
+                AND (OuterOp.TypeInvestOp IN ('LN01','LN03','LN02','LN70','LN71','LN81','LN82','LN06','LN21','LN41','LN61')
                 OR 
                     (
                     OuterOp.TypeInvestOp = 'LN30'
@@ -700,9 +702,11 @@ DATA WORK.INVSTINS;
                 ,MIN(INVESTMENTS.SFA_CMP_IQID) AS COMPANY_ID     
                 ,MIN(INVESTMENTS.PERCENT_OWNERSHIP) AS PERCENT_OWNERSHIP
                 ,MIN(INVESTMENTS.Valuation) AS VALUATION    --001
-                
+                ,MIN(INVESTMENTS.V_EXIT) as V_EXIT
+
                 --helper columns for frontscript below
                 ,MIN(INVESTMENTS.__OPT_CODE) as __OPT_CODE
+
             FROM INVESTMENTS
              
             LEFT JOIN AJXCRMCOMPANYINDUSTRYFOCUS AJXIND
@@ -891,7 +895,8 @@ DATA WORK.INVSTINS;
     COLUMN COMPANY_ID TYPE= 'STRING' LABEL= 'Company Id';
     COLUMN PERCENT_OWNERSHIP TYPE= 'STRING' LABEL= '% Ownership';
     COLUMN VALUATION TYPE = 'DOUBLE' LABEL = 'Valuation';        //001
-    
+    COLUMN V_EXIT TYPE=FLOAT Label='Realized';
+
 RUN;
 //remove
 //PROC PRINT DATA = WORK.INVSTINS LABEl;  RUN;
