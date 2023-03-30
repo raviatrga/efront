@@ -1156,6 +1156,7 @@ DATA WORK.INVSTINS_EQ;
               ELSE 'Exited'
           END as FACILITY_STATUS
         
+        ,SUM((CASE WHEN A.Code IN ('EQ05', 'EQ20', 'EQ41') THEN A.AMOUNT2 ELSE 0 END)) as V_EXIT
         
 		FROM VCINVESTMENTINS INVINS 
         
@@ -1446,7 +1447,7 @@ DATA WORK.INVSTINS_EQ;
                 AND OuterOp.DRAFT=0
                 AND (OuterOp.CANCELLED=0 OR OuterOp.CANCELLED IS NULL)
 				AND OuterOp.CLOSEDATE <=  " & DML(%DATE) & "  
-                AND (OuterOp.TypeInvestOp IN ('EQ01','EQ02','EQ03','EQ42','EQ81','EQ82','EQ20','EQ51') 
+                AND (OuterOp.TypeInvestOp IN ('EQ01','EQ02','EQ03','EQ42','EQ81','EQ82','EQ20','EQ51','EQ05','EQ20','EQ41')
                 OR 
                     (
                     OuterOp.TypeInvestOp = 'EQ30'
@@ -1629,6 +1630,7 @@ DATA WORK.INVSTINS_EQ;
         
         ,MIN(INVESTMENTS.PERCENT_OWNERSHIP) AS PERCENT_OWNERSHIP
         ,MIN(INVESTMENTS.Valuation) AS VALUATION    --001
+        ,MIN(INVESTMENTS.V_EXIT) as V_EXIT
        
         FROM INVESTMENTS 
 
@@ -1742,7 +1744,8 @@ DATA WORK.INVSTINS_EQ;
     COLUMN EGAN_CMP_RATING_EXPIRATION_DATE TYPE= 'STRING' LABEL= 'Egan-Jones Rating Expiration'; 
     COLUMN PERCENT_OWNERSHIP TYPE= 'STRING' LABEL= '% Ownership';
     COLUMN VALUATION TYPE = 'DOUBLE' LABEL = 'Valuation';        //001
-    
+    COLUMN V_EXIT TYPE=FLOAT Label='Realized';
+
 RUN;
 /*
 PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\Equity_Instruments.xlsx" LABEL;
@@ -1852,7 +1855,7 @@ DATA WORK.All_Instruments_IRR_Start;
 RUN;
 /*
 PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\All_Instruments_IRR_Start.xlsx";
-   TABLE = WORK.All_Instruments_IRR_Start  
+   TABLE = WORK.All_Instruments_IRR_Start
    SHEETNAME="All_Instruments_IRR_Start";
 RUN;
 */
