@@ -1,1 +1,2 @@
-1. I can't scroll the Dashboards list to reveal the "Ratings" one!??
+1. In 'prg_PDE-DashBoard_Directs.efront' ($HOME/efront/Private Debt & Equity/PDE_Dashboard_Programs/Version2/),
+   does the statement `IF IN_L OR IN_R THEN OUTPUT` accomplish anything?
