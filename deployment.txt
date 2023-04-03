@@ -1,0 +1,2 @@
+1. DEV dropdown -> Administration -> Config. Migration -> Export Mode -> Functional Configuration (FUNC) -> FrontReport -> [path to program] -> Execute.
+2. UAT: Files -> Upload -> Import Mode -> Execute
