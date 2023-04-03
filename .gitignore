@@ -1,2 +1,4 @@
 # Vim: .swo, .swp
 *.sw*
+
+UNTRACKED
