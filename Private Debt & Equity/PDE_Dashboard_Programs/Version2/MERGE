@@ -1,0 +1,92 @@
+LIBNAME USER CURRENT;
+
+DATA USER.INPUT_TRANSACTION_DATA_TO_BE_JOINED;
+    
+    COLUMN FUND_ID LABEL = "Fund Id" TYPE = STRING;
+    COLUMN INVESTOR_ID LABEL = "Investor Id" TYPE = STRING;
+    COLUMN SHARE_INDEX LABEL = "Share Index" TYPE = INTEGER;
+    COLUMN BANK LABEL = "Bank" TYPE = STRING;
+    COLUMN AGE LABEL = "Age" TYPE = INTEGER;
+
+    FUND_ID = 102;
+    INVESTOR_ID = 324;
+    SHARE_INDEX = 1;
+    BANK = "Apple";
+    AGE = 9;
+
+    OUTPUT;
+
+    FUND_ID = 102;
+    INVESTOR_ID = 324;
+    SHARE_INDEX = 2;
+    BANK = "Banana";
+    AGE = 37;
+
+    OUTPUT;
+
+    FUND_ID = 102;
+    INVESTOR_ID = 424;
+    SHARE_INDEX = 3;
+    BANK = "Cherry";
+    AGE = 15;
+
+    OUTPUT;
+
+    FUND_ID = 102;
+    INVESTOR_ID = 424;
+    SHARE_INDEX = 4;
+    BANK = "Date";
+    AGE = 48;
+
+    OUTPUT;
+
+    FUND_ID = 103;
+    INVESTOR_ID = 524;
+    SHARE_INDEX = 1;
+    BANK = "Eggs";
+    AGE = 4;
+
+    OUTPUT;
+
+    FUND_ID = 103;
+    INVESTOR_ID = 524;
+    SHARE_INDEX = 2;
+    BANK = "Fruit";
+    AGE = 93;
+
+    OUTPUT;
+
+    FUND_ID = 103;
+    INVESTOR_ID = 624;
+    SHARE_INDEX = 3;
+    BANK = "Grapes";
+    AGE = 27;
+
+    OUTPUT;
+
+    FUND_ID = 103;
+    INVESTOR_ID = 624;
+    SHARE_INDEX = 4;
+    BANK = "Habanero";
+    AGE = 33;
+
+    OUTPUT;
+
+RUN;
+
+DATA USER.MERGED_USING_AND;
+
+    MERGE
+        INPUT_TRANSACTIONS (IN=IN_L)
+        INPUT_TRANSACTION_DATA_TO_BE_JOINED (IN=IN_R);
+
+    BY
+        FUND_ID
+        INVESTOR_ID
+        SHARE_INDEX;
+
+    IF (IN_L AND IN_R) THEN
+        OUTPUT;
+    END;
+
+RUN;
