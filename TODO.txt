@@ -1,0 +1,3 @@
+1. Decompose 'Private Debt & Equity/PDE_Dashboard_Programs/Version2/prg_PDE-DashBoard_Directs.efront'.
+2. Get all Programs into the Git repo.
+3. Generate an inventory of every DATA and PROC statement.

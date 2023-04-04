@@ -1,0 +1,5 @@
+1. Version history.
+   a. Viewing/diffing incremental changes.
+   b. Restoring versions as needed.
+
+2. Searchability across entire code base using command-line tools.
