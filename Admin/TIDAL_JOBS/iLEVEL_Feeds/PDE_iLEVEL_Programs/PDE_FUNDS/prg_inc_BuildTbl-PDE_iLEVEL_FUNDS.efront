@@ -1,0 +1,14 @@
+//Builds the table that will store the data for the iLEVEL integration (file to MarkitEDM to iLEVEL API)
+//The USER LIB needs to be defined in the calling program that includes this program
+
+//Below we will add any additional processing or logic to the data before we produce the table to be used as the output file...
+//PROC PRINT DATA = WORK.PDE_FUNDS; RUN;
+
+DATA WORK.iLEVEL_PDE_FUNDS (KEEP = FUND_ID FUND CUSIP FUND_TYPE SECTOR FUND_STATUS VINTAGE);
+    SET WORK.PDE_FUNDS;
+RUN;
+
+PROC MEANS DATA = WORK.iLEVEL_PDE_FUNDS
+    OUT = USER.iLEVEL_PDE_FUNDS;
+    CLASS FUND_ID FUND CUSIP FUND_TYPE SECTOR FUND_STATUS VINTAGE;
+RUN;

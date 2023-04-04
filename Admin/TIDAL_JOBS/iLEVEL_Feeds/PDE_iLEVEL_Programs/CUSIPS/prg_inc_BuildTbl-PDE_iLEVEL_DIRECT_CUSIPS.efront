@@ -1,0 +1,9 @@
+//Builds the table that will store the data for the iLEVEL integration (file to MarkitEDM to iLEVEL API)
+//The USER LIB needs to be defined in the calling program that includes this program
+
+//Below we will add any additional processing or logic to the data before we produce the table to be used as the output file...
+DATA USER.iLEVEL_PDE_CUSIPS (KEEP = CUSIP RGA_CUSIP INSTR_STATUS FACILITY SENIORITY UNITRANCHE_MEZZ 
+                                    COLLATERAL LEGAL_STRUCTURE PDE_ROLE ADMINISTRATIVE_AGENT INVESTMENT_DATE 
+                                    MATURITY_DATE AMORTIZATION FIXED_FLOATING EXIT_DATE INV_YEAR SECURITY_ID INVST_TYPE INST_CURR);
+    SET WORK.CUSIPS;  
+RUN;

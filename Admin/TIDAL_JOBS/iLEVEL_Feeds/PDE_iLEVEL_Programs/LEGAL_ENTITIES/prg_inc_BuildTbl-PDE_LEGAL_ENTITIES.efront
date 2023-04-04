@@ -1,0 +1,14 @@
+//call the query
+PROC FAQUERY Query="IT Development - Queries\iLevel Legal Entities-ILEVEL-API";    
+    TABLE "Default" OUT=WORK.QRY_LEGAL_ENTITIES;
+RUN;
+
+DATA WORK.PDE_LEGAL_ENTITIES; //(DROP = FUND_STATUS);
+    SET WORK.QRY_LEGAL_ENTITIES;
+RUN;
+
+//Sort by Fund name alphabetically
+PROC SORT DATA = WORK.PDE_LEGAL_ENTITIES;
+    BY FUND;
+RUN;
+
