@@ -3,3 +3,6 @@
    b. Restoring versions as needed.
 
 2. Searchability across entire code base using command-line tools.
+   a. Uses of particular statements.
+   b. References to particular efront tables.
+      -Retire unused ones.
