@@ -1,0 +1,562 @@
+//You need to call this program in other programs 
+//You need to define %DATE and %PORT_SNAPSHOT_FUNDS_DATE before the %INCLUDE statement in your program for this to work.
+
+//FUNDS
+/*Partnerships QTR NEW*/
+DATA WORK.FUNDMAST;
+        SQL "SELECT A.IQID  AS FUND_ID,
+            A.FUND          as FUNDNAME ,
+            VCPRT.PORTFOLIO as PORTFOLIO,
+            (case 
+                when A.USERTEXT43 = '1' then 'Debt Hedge Fund' 
+                when A.USERTEXT43 = '2' then 'Alternatives Preferred Stock' 
+                when A.USERTEXT43 = '3' then 'Senior Secured Loan' 
+                when A.USERTEXT43 = '4' then 'Subordinated Loan' 
+                when A.USERTEXT43 = '5' then 'Distressed Debt' 
+                when A.USERTEXT43 = '6' then 'Real Asset Debt' 
+                when A.USERTEXT43 = '7' then 'Senior Secured Loan' 
+                when A.USERTEXT43 = '8' then 'Subordinated Loan/Mezzanine Funds' 
+                when A.USERTEXT43 = '9' then 'Senior Secured Loan' 
+                when A.USERTEXT43 = '10' then 'Subordinated Loan' 
+                when A.USERTEXT43 = '11' then 'Senior Secured Loan' 
+                when A.USERTEXT43 = '12' then 'Subordinated Loan' 
+                when A.USERTEXT43 = '13' then 'Equity Hedge Fund' 
+                when A.USERTEXT43 = '14' then 'Alternatives Common Stock' 
+                when A.USERTEXT43 = '15' then 'Alternatives Preferred Stock' 
+                when A.USERTEXT43 = '16' then 'Warrants' 
+                when A.USERTEXT43 = '17' then 'Buyout' 
+                when A.USERTEXT43 = '18' then 'Growth' 
+                when A.USERTEXT43 = '19' then 'Real Asset Equity' 
+                when A.USERTEXT43 = '20' then 'Secondary' 
+                when A.USERTEXT43 = '21' then 'Venture Capital' 
+                when A.USERTEXT43 = '22' then 'Structured Alternatives Common Stock' 
+                when A.USERTEXT43 = '23' then 'Structured Alternatives Preferred Stock' 
+                when A.USERTEXT43 = '24' then 'Senior Loan' 
+                when A.USERTEXT43 = '25' then 'Subordinated Loan' 
+             end) + 
+            (case 
+                when A.USERTEXT44 = '1' then '/Co-Investment' 
+                when A.USERTEXT44 = '2' then '/Direct Investment' 
+                when A.USERTEXT44 = '3' then '/Co-Investment' 
+                when A.USERTEXT44 = '4' then '/Direct Investment' 
+                when A.USERTEXT44 = '5' then '/Co-Investment' 
+                when A.USERTEXT44 = '6' then '/Direct Investment' 
+                when A.USERTEXT44 = '7' then '/Agriculture' 
+                when A.USERTEXT44 = '8' then '/Energy' 
+                when A.USERTEXT44 = '9' then '/Infrastructure' 
+                when A.USERTEXT44 = '10' then '/Real Estate' 
+                when A.USERTEXT44 = '11' then '/Timber' 
+                when A.USERTEXT44 = '12' then '/Co-Investment' 
+                when A.USERTEXT44 = '13' then '/Co-Investment' 
+                when A.USERTEXT44 = '14' then '/Co-Investment' 
+                when A.USERTEXT44 = '15' then '/Agriculture' 
+                when A.USERTEXT44 = '16' then '/Energy' 
+                when A.USERTEXT44 = '17' then '/Infrastructure' 
+                when A.USERTEXT44 = '18' then '/Real Estate' 
+                when A.USERTEXT44 = '19' then '/Timber' 
+             else ' '                                                                                                                                                                                
+            end)          as Sectors,
+            cast(A.VINTAGEYEAR  as varchar(4)) as 'Vintage',                                                                                                                                                                            
+            A.USERCURR3   as 'RGA_Orig_Commit', 
+            A.USERCURR1   as 'Target_Fund_Size',
+            A.USERCURR2   as 'Total_Fund_Size_At_Close',
+            A.CURRENCY1   as 'CURRENCY',
+            CONVERT(VARCHAR, FORMAT(A.CLOSINGDATE,'MM/dd/yy'), 1) as 'CLOSEDATE',
+            A.ENDDATE     as 'ENDDATE', 
+            CONVERT(VARCHAR, FORMAT(VCSUB.EXITDATE,'MM/dd/yy'), 1),
+            case  when FSTAT.DESCR like 'Exited Fund%' 
+                then '0'  
+              else '1' 
+            end           as 'FACTIVESTATUS' ,
+            case  when FSTAT.DESCR like 'Exited Fund%' 
+                then 'Exited' 
+              else 'Active' 
+            end           as 'FUNDSTATUS_DashBrd',
+            case 
+                when A.USERTEXT42 = '4' then 'Private Debt Fund' 
+                when A.USERTEXT42 = '9' then 'Private Equity Fund'                                                                                                                                                                             
+            end           as  FUND_CLASS3 ,
+            --VCSUB.LIBELLE as INVESTORNAME,
+            A.USERNUM8    as RGA_SHARE, 
+            CASE A.USERTEXT47 
+               WHEN '1' 
+                 THEN 'Yes' 
+               WHEN '0' 
+                 THEN 'No' 
+               ELSE '' 
+            END          as LIM_PART_ADV, 
+            CASE A.USERTEXT48 
+               WHEN '1' 
+                 THEN 'Yes' 
+               WHEN '0' 
+                 THEN 'No' 
+               ELSE '' 
+            END          as BUYOUT_STRATEGIC,
+            cast(DATEPART(YYYY,A.CLOSINGDATE)  as varchar(4)) AS COMMITMENT_YEAR        
+            FROM VCFUND A
+             JOIN VCSUBSCRIBER VCSUB 
+               ON VCSUB.FUND = A.IQID 
+                 AND VCSUB.IQDELETED=0 
+             JOIN VCPORTFOLIOASSET VCPRTAST 
+               ON VCPRTAST.SUBSCRIBER = VCSUB.IQID 
+                 AND  VCPRTAST.IQDELETED=0   
+             JOIN VCPORTFOLIO VCPRT 
+               ON VCPRT.IQID = VCPRTAST.PORTFOLIO  
+                 AND  VCPRT.IQDELETED=0 
+                 AND VCPRT.PORTFOLIO IN ('PDE - Funds')                                                                                                                                                                         
+             JOIN ADMROLE REG 
+               ON A.IQREGIONID = REG.IQID 
+                 AND REG.NAME IN ('Private Debt & Equity') 
+             JOIN VCFUNDSTAT FSTAT 
+               ON A.FSTATUS = FSTAT.CODE 
+            WHERE A.IQDELETED=0 
+              /*AND ((A.USERTEXT42 = '4' 
+                    AND A.USERTEXT43 IN ('5','8','6')) 
+                   OR A.USERTEXT42 = '9')*/    -- 02/13/2022 MB commented out
+              AND ??FILTER
+            GROUP BY 
+                 A.IQID
+                ,A.FUND
+                ,VCPRT.PORTFOLIO
+                ,A.USERTEXT43
+                ,A.USERTEXT44
+                ,A.VINTAGEYEAR
+                ,A.USERCURR3
+                ,A.USERCURR1
+                ,A.USERCURR2
+                ,A.CURRENCY1
+                ,A.CLOSINGDATE
+                ,A.ENDDATE
+                ,VCSUB.EXITDATE
+                ,FSTAT.DESCR
+                ,A.USERTEXT42
+                ,A.USERNUM8 
+                ,A.USERTEXT47 
+                ,A.USERTEXT48
+              ";
+              
+        COLUMN FUND_ID; 
+        COLUMN FUNDNAME  LABEL = "Fund Name";
+        COLUMN PORTFOLIO  LABEL = "Portfolio";
+        COLUMN Sectors  LABEL = "Sector";
+        COLUMN Vintage  LABEL = "Vintage";
+        COLUMN USERCURR3 TYPE = DOUBLE LABEL = "RGA Original Contribution";
+        COLUMN USERCURR2 TYPE = DOUBLE LABEL = "Target Fund Size";
+        COLUMN USERCURR1 TYPE = DOUBLE LABEL = "Total Fund Size at Close";
+        COLUMN CURRENCY LABEL = "Currency";
+        COLUMN CLOSEDATE LABEL = "RGA Close Date";
+        COLUMN ENDDATE LABEL = "End Date";
+        COLUMN EXITDATE LABEL = "Exit Date";
+        COLUMN FACTIVESTATUS LABEL = "Active Status";                                                                                                                                                                          
+        COLUMN FUNDSTATUS_DashBrd LABEL = "Fund Status";
+        COLUMN FUND_CLASS3 LABEL = "Fund Type";
+        //COLUMN INVESTORNAME LABEL = "Investor Name";
+        COLUMN RGA_SHARE TYPE = DOUBLE LABEL = "RGA Share of Fund";
+        COLUMN LIM_PART_ADV LABEL = "Limited Partner Advisory Committee";
+        COLUMN BUYOUT_STRATEGIC LABEL = "Buyout Strategic";
+        COLUMN COMMITMENT_YEAR LABEL = "Commitment Year";
+        
+      RUN;    
+
+
+
+    //BLR - Commented out the prior quarter date for the fund date
+    //BLR - Changed the fund date to the current date, this will bring in the current book value data - 20210310
+      PROC FAQUERY Query="IT Admin - Program Queries\qry_Gl_Income_by_Fund" (DATE=CDATE(%DATE));
+        TABLE "Default"  
+        OUT = work.Fund_Gl_Income;
+      RUN;
+      
+      PROC MEANS DATA = WORK.Fund_Gl_Income
+          OUT = WORK.Fund_Gl_Income;
+          CLASS Fund_ID FUND;
+          VAR CLOSING_DATE;
+          SUM AMOUNT_GL_INCOME (NAME = AMOUNT_GL_INCOME)
+              [AMOUNT_GL_COST_(US_GAAP)] (NAME = [AMOUNT_GL_COST_(US_GAAP)]);
+      RUN;
+      
+      DATA WORK.FUNDMAST;
+        merge WORK.FUNDMAST(IN = IN1) Work.Fund_Gl_Income;
+        by FUND_ID;
+        IF (IN1) THEN OUTPUT;
+        End;
+      RUN;  
+      
+
+        
+    DATA WORK.FUND_CF;
+        SQL "
+            SELECT 
+                VCF.IQID FUND_ID, 
+                VCF.FUND FUND, 
+                --SUBSCR.LIBELLE INVESTORNAME,     --03/09/2022 commented out
+                OP.CLOSEDATE CLOSEDATE, 
+                Cast(DATEPART(YYYY,OP.CLOSEDATE)  as varchar(4)) OP_YEAR, 
+                
+                COALESCE(SUBOP.AMOUNT02,0) + COALESCE(SUBOP.AMOUNT04,0) + COALESCE(SUBOP.AMOUNT08,0) + COALESCE(SUBOP.AMOUNT30,0) + 
+                COALESCE(SUBOP.AMOUNT50,0) + COALESCE(SUBOP.AMOUNT80,0) + COALESCE(SUBOP.AMOUNT60,0) AS CAPITALINVESTED,
+                
+                /*Added Case for Total Distributed TFS 16237*/
+                CASE WHEN OP.OTYPE IN(-277, -278) 
+                THEN 
+                    COALESCE(SUBOP.AMOUNT24,0) + COALESCE(SUBOP.AMOUNT17,0) + COALESCE(SUBOP.AMOUNT13,0) + COALESCE(SUBOP.AMOUNT14,0) +
+                    COALESCE(SUBOP.AMOUNT15,0) + COALESCE(SUBOP.AMOUNT23,0) + COALESCE(SUBOP.AMOUNT29,0) + COALESCE(SUBOP.AMOUNT28,0) + COALESCE(SUBOP.AMOUNT, 0) /*Added AMOUNT for Total Distributed TFS 16237*/
+                ELSE
+                    COALESCE(SUBOP.AMOUNT24,0) + COALESCE(SUBOP.AMOUNT17,0) + COALESCE(SUBOP.AMOUNT13,0) + COALESCE(SUBOP.AMOUNT14,0) +
+                    COALESCE(SUBOP.AMOUNT15,0) + COALESCE(SUBOP.AMOUNT23,0) + COALESCE(SUBOP.AMOUNT29,0) + COALESCE(SUBOP.AMOUNT28,0)
+                END
+                AS RETURNOFCAPITAL
+                
+            FROM VCFUND VCF 
+                JOIN VCFUNDSTAT FSTAT 
+                  ON VCF.FSTATUS = FSTAT.CODE 
+                JOIN ADMROLE REG 
+                  ON VCF.IQREGIONID = REG.IQID 
+                    AND REG.NAME IN ('Private Debt & Equity')
+                JOIN VCFUNDOP OP 
+                  ON OP.FUND = VCF.IQID 
+                    AND OP.IQDELETED=0
+                JOIN VCFUNDOPTYPE VCFOPTYPE ON VCFOPTYPE.CODE=OP.OTYPE AND VCFOPTYPE.FILTER<>'00000000000000000000000000000000'
+                JOIN VCSUBSCRFUNDOPSHARE SUBOP ON SUBOP.FUNDOP = OP.IQID AND SUBOP.IQDELETED=0 AND SUBOP.FUNDOP IS NOT NULL
+                --JOIN VCSUBSCRIBER SUBSCR ON SUBSCR.IQID = SUBOP.SUBSCRIBER AND SUBSCR.IQDELETED=0                                            --03/09/2022 commented out
+                --JOIN VCPORTFOLIOASSET VCPRTAST ON VCPRTAST.SUBSCRIBER = SUBSCR.IQID AND  VCPRTAST.IQDELETED=0                                --03/09/2022 commented out
+                --JOIN VCPORTFOLIO VCPRT ON VCPRT.IQID = VCPRTAST.PORTFOLIO  AND  VCPRT.IQDELETED=0 AND VCPRT.PORTFOLIO IN ('PDE - Funds')     --03/09/2022 commented out
+        WHERE 
+        VCF.IQDELETED=0 
+        AND (OP.CANCELLED = 0 OR OP.CANCELLED IS NULL)
+        --AND ((VCF.USERTEXT42 = '4' AND VCF.USERTEXT43 IN ('5','8','6')) OR VCF.USERTEXT42 = '9')     --02/13/2022 MB commented out
+        AND (OP.CLOSEDATE) <= " & DML(%PORT_SNAPSHOT_FUNDS_DATE) & "    
+        AND ( COALESCE(SUBOP.AMOUNT02,0) <> 0  OR COALESCE(SUBOP.AMOUNT04,0) <> 0 OR COALESCE(SUBOP.AMOUNT08,0) <> 0
+          OR COALESCE(SUBOP.AMOUNT30,0) <> 0 OR COALESCE(SUBOP.AMOUNT50,0) <> 0 OR COALESCE(SUBOP.AMOUNT80,0) <> 0 OR COALESCE(SUBOP.AMOUNT60,0) <> 0 
+          OR COALESCE(SUBOP.AMOUNT24,0)  <> 0 OR COALESCE(SUBOP.AMOUNT17,0)  <> 0 OR COALESCE(SUBOP.AMOUNT13,0)  <> 0 OR COALESCE(SUBOP.AMOUNT14,0)  <> 0 OR 
+          COALESCE(SUBOP.AMOUNT15,0)  <> 0 OR COALESCE(SUBOP.AMOUNT23,0)  <> 0 OR COALESCE(SUBOP.AMOUNT29,0)  <> 0 OR COALESCE(SUBOP.AMOUNT28,0)<>0 OR  COALESCE(SUBOP.AMOUNT, 0) <>0) /*Added AMOUNT for Total Distributed TFS 16237*/
+     /*   GROUP BY VCF.IQID, VCF.FUND, SUBSCR.LIBELLE */
+        ORDER BY 1
+         " ; 
+        COLUMN FUND_ID;
+        
+    RUN;
+        
+    //PROC PRINT DATA=WORK.FUND_CF; RUN;
+    
+    PROC MEANS DATA =WORK.FUND_CF OUT=WORK.FUND_CF2;
+        CLASS FUND_ID;    // 03/09/2022 removed INVESTORNAME 
+        //label was Capital Invested,changed to Investment
+        SUM CAPITALINVESTED(NAME=CAPITALINVESTED LABEL = "Investment");
+        SUM RETURNOFCAPITAL(NAME=RETURNOFCAPITAL LABEL = "Realized");
+    RUN; 
+    
+    %LET DATE = %ORIG_DATE;
+    //PROC PRINT; PUT %DATE; RUN;
+
+    
+    //For Capital Invested Graph 
+    DATA WORK.FUND_LIST;
+        //MERGE WORK.FUNDMAST(IN=IN1) WORK.FUND_CF2(IN=IN2);
+        MERGE WORK.FUNDMAST(IN=IN1) WORK.FUND_CF2;
+        By FUND_ID;    //03/09/2022 removed INVESTORNAME   
+        //If (IN1 and IN2) then Output;
+        IF (IN1) THEN OUTPUT;
+        END;
+    RUN;  
+    //PROC PRINT DATA=WORK.FUND_LIST;title 'FUND_LIST merge WORK.FUNDMAST(IN=IN1) WORK.FUND_CF2';  RUN;   
+    // output fields -- FUND_ID, FUND, INVESTORNAME, GL_COST_ELIM, GAAP_BOOK_VALUE, LASTVALUATION, REMAININGCOMMITMENT, GAAP_INCOME_ITD, Q_CUSIP                                                                                                                                                                                        
+    //PROC PRINT; PUT DML(%Prior_Qtr); RUN;
+    
+    //BLR - Commented out the prior quarter date for the fund date
+    PROC FAQUERY Query="IT Admin - Program Queries\Positions-PortRev" (DATE = CDATE(%PORT_SNAPSHOT_FUNDS_DATE)) ;    
+        TABLE "Default"  OUT=WORK.QRY_POSITIONS_PORTREV;
+    RUN;
+
+
+//001 begin
+    PROC MEANS DATA = WORK.QRY_POSITIONS_PORTREV
+        OUT = WORK.QRY_POSITIONS_PORTREV;
+        CLASS Fund_ID Fund Q_CUSIP;
+        //VAR InvestorName;      //03/09/2022 commented out   
+        SUM GL_COST_ELIM (NAME = GL_COST_ELIM) 
+            GAAP_BOOK_VALUE (NAME = GAAP_BOOK_VALUE) 
+            LASTVALUATION (NAME = LASTVALUATION) 
+            REMAININGCOMMITMENT (NAME = REMAININGCOMMITMENT)
+            GAAP_INCOME_ITD (NAME = GAAP_INCOME_ITD)
+            COMMITMENT (NAME = COMMITMENT);
+    RUN;
+/*   
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\Qry.xlsx" LABEL;
+   TABLE = WORK.QRY_POSITIONS_PORTREV
+   SHEETNAME="Funds";
+RUN;
+*/
+
+//001 end
+
+    //------------------------------------------------ Get Reporting Date LASTVALUATION
+    //BLR - Commented out the %Date for the fund date from the Portfolio Snapshot page in dashboard
+    //BOOK VALUE?
+    PROC FAQUERY Query="IT Admin - Program Queries\Positions-PortRev" (DATE=%PORT_SNAPSHOT_FUNDS_DATE); //(DATE=%Date) ; 
+        TABLE "Default"  OUT=WORK.Cur_Date_QRY_POSITIONS_PORTREV;
+    RUN;
+    //PROC PRINT DATA=WORK.Cur_Date_QRY_POSITIONS_PORTREV;title 'Current_Date_QRY_POSITIONS_PORTREV output'; RUN;
+    
+    
+    PROC MEANS DATA = WORK.Cur_Date_QRY_POSITIONS_PORTREV
+        OUT = WORK.Cur_Date_QRY_POSITIONS_PORTREV;
+        CLASS Fund_ID Fund Q_CUSIP;
+        //VAR InvestorName;      //03/09/2022 commented out   
+        SUM GL_COST_ELIM (NAME = GL_COST_ELIM) 
+            GAAP_BOOK_VALUE (NAME = GAAP_BOOK_VALUE) 
+            LASTVALUATION (NAME = LASTVALUATION) 
+            REMAININGCOMMITMENT (NAME = REMAININGCOMMITMENT)
+            GAAP_INCOME_ITD (NAME = GAAP_INCOME_ITD)
+            COMMITMENT (NAME = COMMITMENT);
+    RUN;    // 03/09/2022
+    
+
+//---------------------
+// Prior Rpeorting Date Last Valuation 
+    Data WORK.Current_Date_QRY_POSITIONS_PORTREV (Keep = FUND_ID FUND LASTVALUATION Q_CUSIP Report_CURRENTCOST );    // 03/09/2022 INVESTORNAME 
+        Set WORK.QRY_POSITIONS_PORTREV; // changed because previously needed to pull in current valuation for prior period, but no longer need to
+        COLUMN Report_CURRENTCOST  TYPE=DOUBLE; Report_CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM;
+    Run;
+    
+    DATA WORK.Curr_BV (Keep = FUND_ID FUND Q_CUSIP Report_CURRENTCOST);    // 03/09/2022 INVESTORNAME
+        SET WORK.Cur_Date_QRY_POSITIONS_PORTREV; 
+        COLUMN Report_CURRENTCOST  TYPE=DOUBLE; 
+        Report_CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM;
+    Run; 
+
+    DATA WORK.FUND_LIST;
+        MERGE WORK.FUND_LIST(IN=IN1) WORK.QRY_POSITIONS_PORTREV;
+        By FUND_ID;   // 03/09/2022 removed INVESTORNAME  
+        If (IN1) then Output;
+        End;
+    RUN;   
+
+    //PROC PRINT DATA =  WORK.FUND_LIST; RUN; 
+    Data WORK.FUND_LIST;
+      set WORK.FUND_LIST(where CDATE(closedate) <= CDATE(%PORT_SNAPSHOT_FUNDS_DATE));      // 002 added CDATE before both dates
+    RUN;  
+
+///////////////////////////////////////////       
+    DATA WORK.FUND_LIST(DROP=FUND GAAP_BOOK_VALUE GL_COST_ELIM);
+        SET WORK.FUND_LIST;
+        COLUMN REPORT_CURRENTCOST TYPE=DOUBLE;  REPORT_CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM;    
+      /////  COLUMN CURRENTCOST  TYPE=DOUBLE;  CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM;
+    RUN;
+                                                                                                                                                                                      
+    PROC MEANS DATA = FCE.FUNDOPERATIONS(WHERE CDATE(OPERATIONDATE) <= CDATE(%PORT_SNAPSHOT_FUNDS_DATE)) OUT=WORK.TIRR; 
+    //PROC MEANS DATA = FCE.FUNDOPERATIONS(WHERE OPERATIONDATE<=%Date) 
+        
+        CLASS FUND_ID OPERATIONDATE; 
+        VAR  FUNDNAME; 
+        SUM CASH(NAME=IRRNET);
+    RUN; 
+    //PROC PRINT DATA = work.TIRR; title 'TIRR output1'; RUN;    
+    
+    PROC MEANS DATA = WORK.FUND_LIST OUT=WORK.TVALUATION;
+        CLASS FUND_ID; 
+        VAR  FUNDNAME; 
+        SUM LASTVALUATION(NAME=IRRNET);
+    RUN; 
+    //PROC PRINT DATA = work.TVALUATION; title 'TIRR output2'; RUN;    
+    
+    DATA WORK.TIRR;
+        SET  WORK.TIRR(IN=T1) WORK.TVALUATION; 
+        IF IRRNET IS NULL THEN IRRNET=0; END;     
+        COLUMN SORT_IRR TYPE=INTEGER;     
+        IF T1 THEN 
+        SORT_IRR=0;  
+        ELSE 
+        SORT_IRR=1; 
+        //BLR - Commented out the prior quarter date for the fund date
+        OPERATIONDATE=CDATE(%PORT_SNAPSHOT_FUNDS_DATE);  //002 changed from %DATE to prior quarter
+        END;                                                                                                                                                                                            
+        _OUTPUT_=IRRNET <>0 OR SORT_IRR=1;
+    RUN; 
+    //PROC PRINT DATA =  work.TVALUATION;title 'TVALUATION output'; RUN;    
+    
+    PROC SORT DATA = WORK.TIRR; 
+        BY FUND_ID FUNDNAME SORT_IRR OPERATIONDATE; 
+    RUN; 
+    
+    DATA WORK.FUND_LIST1 (Drop = LASTVALUATION);
+        MERGE WORK.FUND_LIST(IN=IN1) WORK.TIRR(IN=IN2);
+        By FUND_ID;
+        If (IN1 and IN2) then Output;
+        End;
+    RUN;
+    //PROC PRINT DATA =  work.FUND_LIST1;title 'FUND_LIST1 Merge with WORK.TIRR'; RUN;    
+    
+    //--------------------------------- Merge Reporting Date LASTVALUATION
+    //PROC PRINT DATA =  work.Current_Date_QRY_POSITIONS_PORTREV;title 'Current_Date_QRY_POSITIONS_PORTREV Cube'; RUN;    
+    DATA WORK.FUND_LIST1;
+        MERGE WORK.FUND_LIST1(IN=IN1) WORK.Current_Date_QRY_POSITIONS_PORTREV(IN=IN2); //WORK.QRY_POSITIONS_PORTREV(IN=IN2);
+        By FUND_ID Q_CUSIP;    // 03/09/2022 removed INVESTORNAME 
+        If (IN1 and IN2) then Output;
+        End;
+    RUN;
+    //PROC PRINT DATA =  work.FUND_LIST1;title 'FUND_LIST1 after Merge with reporting date LastValuation'; RUN;    
+    
+    //------------------------------------
+    DATA WORK.IRR_SORT (keep = FUND_ID Q_CUSIP SORT_IRR LastValuation);    // 03/09/2022 INVESTORNAME
+        SET WORK.FUND_LIST1; 
+        IF SORT_IRR = 1 
+           then OUTPUT; 
+        END;     
+    RUN; 
+    
+    //PROC PRINT DATA =  work.IRR_SORT;title 'IRR_SORT = 1 LastValuation'; RUN;    
+    DATA WORK.FUND_LIST2;
+        MERGE WORK.FUND_LIST1(IN=IN1) WORK.IRR_SORT(IN=IN2);
+        By FUND_ID Q_CUSIP SORT_IRR;    // 03/09/2022 INVESTORNAME
+        if SORT_IRR = 1 
+          then IRRNET = LastValuation;
+        end;  
+        If (IN1 and IN2) then Output;
+        End;
+    RUN;
+    
+    DATA WORK.FUND_LIST3;
+        set WORK.FUND_LIST1(IN=IN1);
+        if SORT_IRR = 0 
+          then Output;
+        end;  
+    RUN;
+    //PROC PRINT DATA =  work.FUND_LIST3;title 'FUND_LIST3  reporting date urrent cost'; RUN;    
+    
+    DATA WORK.FUND_LIST1;    
+        set WORK.FUND_LIST2 WORK.FUND_LIST3;
+    Run;
+    //------------------------------------
+    
+    //TODO: do I even need this table? Can't it be done on FUND_LIST1?
+    // addcode here to update LASTVALUATION with reporting date values 
+    DATA WORK.FUND_LIST1_QTR(DROP = ENDDATE REPORT_CURRENTCOST);     //002 changed to work table
+        SET WORK.FUND_LIST1;  
+        COLUMN TOTALVALUE TYPE=FLOAT LABEL="Total Value"; 
+        if LASTVALUATION is null
+          then LASTVALUATION = 0;
+        end;   
+    //  COLUMN Report_CURRENTCOST  TYPE=DOUBLE; Report_CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM;
+    //  COLUMN CURRENTCOST TYPE=DOUBLE; CURRENTCOST = REPORT_CURRENTCOST; //set CURRENTCOST to Reporting date REPORT_CURRENTCOST    //003 commented out
+        TOTALVALUE = RETURNOFCAPITAL + LASTVALUATION;                                                                                                                                                                                     
+    RUN;  
+
+    DATA WORK.FUND_LIST1_QTR;
+        MERGE WORK.FUND_LIST1_QTR (IN = OK_L) 
+              WORK.Curr_BV (IN = OK_R);
+        BY FUND_ID Q_CUSIP;
+        if (OK_L) then Output;
+        end;
+    RUN;
+    
+    //rename these fields so I can relabel them in the next DATA step. This is for the left hand filters so the labels are user friendly.
+    DATA WORK.FUND_LIST1_QTR (RENAME=(AMOUNT_GL_INCOME = AMOUNT_GL_INCOME_TEMP LASTVALUATION = LASTVALUATION_TEMP REMAININGCOMMITMENT = REMAININGCOMMITMENT_TEMP Q_CUSIP = Q_CUSIP_TEMP [AMOUNT_GL_COST_(US_GAAP)] = [AMOUNT_GL_COST_(US_GAAP)_TEMP] IRRNET = IRRNET_TEMP GAAP_INCOME_ITD = GAAP_INCOME_ITD_TEMP));
+        SET WORK.FUND_LIST1_QTR;
+        COLUMN CURRENTCOST TYPE = DOUBLE LABEL = "Book Value";
+        CURRENTCOST = Report_CurrentCost;
+        USERCURR3 = COMMITMENT;
+        
+        //if any are exited then RGA Remaining Commitment needs to displayed as zero
+        IF (FACTIVESTATUS = "0") THEN REMAININGCOMMITMENT = 0; END;
+
+        //Convert the amounts to USD when not USD
+        IF (CURRENCY <> 'USD') 
+            THEN
+            //RGA Original Contribution, changed to COMMITMENT from the query builder qurey
+            //USERCURR3 = CONVERTCURR(USERCURR3, CURRENCY, 'USD', %FX_RATE_DATE);
+            USERCURR3 = CONVERTCURR(COMMITMENT, CURRENCY, 'USD', %FX_RATE_DATE);
+            //Target Fund Size
+            USERCURR2 = CONVERTCURR(USERCURR2, CURRENCY, 'USD', %FX_RATE_DATE);
+            //Total Fund Size at Close
+            USERCURR1 = CONVERTCURR(USERCURR1, CURRENCY, 'USD', %FX_RATE_DATE);
+            //Remaining Commitment
+            REMAININGCOMMITMENT = CONVERTCURR(REMAININGCOMMITMENT, CURRENCY, 'USD', %FX_RATE_DATE);
+            //REPORT_CURRENTCOST = CONVERTCURR(REPORT_CURRENTCOST, CURRENCY, 'USD', %FX_RATE_DATE);
+            //Book Value
+            CURRENTCOST = CONVERTCURR(CURRENTCOST, CURRENCY, 'USD', %FX_RATE_DATE);
+            //Investment
+            CAPITALINVESTED = CONVERTCURR(CAPITALINVESTED, CURRENCY, 'USD', %FX_RATE_DATE);
+            //Realized
+            RETURNOFCAPITAL = CONVERTCURR(RETURNOFCAPITAL, CURRENCY, 'USD', %FX_RATE_DATE);
+            //Unrealized
+            LASTVALUATION = CONVERTCURR(LASTVALUATION, CURRENCY, 'USD', %FX_RATE_DATE); 
+            //Total Value
+            TOTALVALUE = CONVERTCURR(TOTALVALUE, CURRENCY, 'USD', %FX_RATE_DATE);
+           
+            //IRR values
+            IRRNET = CONVERTCURR(IRRNET, CURRENCY, 'USD', %FX_RATE_DATE);
+            //Inception-to-Date GAAP Income
+            GAAP_INCOME_ITD = CONVERTCURR(GAAP_INCOME_ITD, CURRENCY, 'USD', %FX_RATE_DATE);
+            //Amount GL Income
+            AMOUNT_GL_INCOME = CONVERTCURR(AMOUNT_GL_INCOME, CURRENCY, 'USD', %FX_RATE_DATE);
+            //Inception-to-Date GAAP Income
+            [AMOUNT_GL_COST_(US_GAAP)] = CONVERTCURR([AMOUNT_GL_COST_(US_GAAP)], CURRENCY, 'USD', %FX_RATE_DATE);
+            
+        END;
+        
+    RUN;
+  
+  //we need to relable AMOUNT_GL_INCOME so we can get the user friendly name applied
+  //Use this to do any other relabeling
+    DATA WORK.FUND_LIST1_QTR (DROP = AMOUNT_GL_INCOME_TEMP LASTVALUATION_TEMP REMAININGCOMMITMENT_TEMP [AMOUNT_GL_COST_(US_GAAP)_TEMP] Q_CUSIP_TEMP IRRNET_TEMP GAAP_INCOME_ITD_TEMP);
+        SET WORK.FUND_LIST1_QTR;
+        
+        COLUMN AMOUNT_GL_INCOME TYPE = DOUBLE LABEL = "Amount GL Income"; AMOUNT_GL_INCOME = AMOUNT_GL_INCOME_TEMP;
+        COLUMN LASTVALUATION TYPE = DOUBLE LABEL = "Unrealized"; LASTVALUATION = LASTVALUATION_TEMP;
+        COLUMN REMAININGCOMMITMENT TYPE = DOUBLE LABEL = "RGA Remaining Commitment"; REMAININGCOMMITMENT = REMAININGCOMMITMENT_TEMP;
+        COLUMN Q_CUSIP LABEL = "CUSIP"; Q_CUSIP = Q_CUSIP_TEMP;
+        COLUMN [AMOUNT_GL_COST_(US_GAAP)] LABEL = "Inception-to-Date GAAP Income"; [AMOUNT_GL_COST_(US_GAAP)] = [AMOUNT_GL_COST_(US_GAAP)_TEMP];
+        COLUMN IRRNET TYPE = DOUBLE LABEL = "IRR"; IRRNET = IRRNET_TEMP;
+        COLUMN GAAP_INCOME_ITD TYPE = DOUBLE LABEL = "Inception-to-Date GAAP Income"; GAAP_INCOME_ITD = GAAP_INCOME_ITD_TEMP;
+        
+        COLUMN PERCENT_OF_TOTAL TYPE = DOUBLE LABEL = "% of Total"; 
+        COLUMN PERCENT_OF_TARGET TYPE = DOUBLE LABEL = "% of Target";
+        
+        IF (USERCURR2 = 0 OR USERCURR2 IS NULL) THEN PERCENT_OF_TARGET  = NULL; ELSE PERCENT_OF_TARGET  = (USERCURR3/USERCURR2); END;
+        IF (USERCURR1 = 0 OR USERCURR1 IS NULL) THEN PERCENT_OF_TOTAL = NULL; ELSE PERCENT_OF_TOTAL = (USERCURR3/USERCURR1); END;
+    RUN;
+  
+    
+    /*%LET NETPATH = Gettemppath() + "\FUND_LIST1_QTR.xlsx";
+    PROC EXPORTEXCEL FILE=CSTR(%NETPATH);
+        TABLE= WORK.FUND_LIST1 SHEETNAME="tab1";
+    RUN;*/
+      
+
+    //I prefer to write use the memory cubes to write to disk instead of the cubes on disk, so this is different from original code
+    
+    DATA USER.FUND_LIST1_QTR;
+        SET WORK.FUND_LIST1_QTR;
+    RUN;
+  
+    //It's a mystery why we needed _QTR in the first place if we were just going to define it as FUND_LIST1 in the end...
+    //Seems vestigial from previous features/requirements...?
+    DATA USER.FUND_LIST1; 
+      SET WORK.FUND_LIST1_QTR;  
+    RUN;
+    //Sort by Fund name alphabetically
+    PROC SORT DATA = USER.FUND_LIST1;
+        BY FUNDNAME;
+    RUN;
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\Funds.xlsx" LABEL;
+   TABLE = USER.Fund_List1
+   SHEETNAME="Funds";
+RUN;   
+*/   
+//001 begin
+DATA USER.FUND_LIST1_Excl_Funds;
+    SET USER.FUND_LIST1 (WHERE Q_CUSIP <> 'BRS2DF867'
+                         AND Q_CUSIP <> 'BRG0JBP92'
+                         AND Q_CUSIP <> 'BRS2DF842'
+                         AND Q_CUSIP <> 'BRG04G2P6'
+                         AND Q_CUSIP <> 'BRG0PLWN4'
+                         AND Q_CUSIP <> 'BRS2DF834'
+                         AND Q_CUSIP <> 'BRS2FKJU9'
+                         AND Q_CUSIP <> 'BRS2DF7X9'
+                         AND Q_CUSIP <> 'BRG04JXD3');
+RUN;
+//001 end
+    
+    

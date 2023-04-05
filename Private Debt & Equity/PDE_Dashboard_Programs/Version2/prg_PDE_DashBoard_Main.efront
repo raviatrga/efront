@@ -1,0 +1,185 @@
+//INCLUDED: prg_inc_BuildTbl-FUND_LIST1, prg_inc_BuildTbl-PORTFOLIO_SNAPSHOT 
+
+//One can find 'NA' dispersed among the fields that would be normally a number/double, but now must be a string field in order to cram in the NA. 
+//This means percentages had to be formatted in SQL STR() functions...
+//As a result, math on this field is harder, but not impossible, to do so, substr out the '%' character and then convert to DBL and then do the math, then try to reformat the value with a picture or concatenate the string
+//This would be easier to maintain if numbers could be NULL instead of NA
+
+LIBNAME USER '\\Private Debt & Equity\PDE_Dashboard_Tables\Version2';
+
+%DEFINE REPORT_DATE;
+%DEFINE CALCULATE_IRR;
+//%DEFINE USE_INVESTEE_CURR;
+
+
+%PARAM DATE LABEL="Enter End Date for Directs" TYPE=DATE DEFAULT=TODAY NOTNULL;
+%PARAM PORT_SNAPSHOT_FUNDS_DATE LABEL = "Enter End Date for Portfolio Snapshot Fund" TYPE=DATE DEFAULT=TODAY NOTNULL;
+%PARAM VINTAGES LABEL = "Vintage" TYPE=STRING INFORMAT="??XCHOICE(Use All,1990,1991,1992,1993,1994,1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2036,2037,2038,2039,2040)" NBROWS="3" SHOWSELECTEDITEMS;
+
+
+%LET DATE=%DATE;
+%LET ORIG_DATE=%DATE;
+
+%LET VINTAGE_DATE_CSV = "";
+%LET VINTAGE_DATE_LIST = "";
+%LET DEFAULT_VINTAGE = "Use All";
+%LET USE_ALL = FALSE;
+
+%LET PERCENT_FORMAT = '0.0%;(0.0%);0.0%';
+%LET PERCENT_FORMAT_TWO_DEC = '0.00%;(0.00%);0.00%';
+
+%DEFINE FX_RATE_DATE;
+
+
+
+//evaluate and process Vintage dates param
+//In this case, they can pick "Use All" option from the drop down list, or they can leave the drop down unselected, both cases result in using all the vintage dates as source to the snapshot tabs.
+//If it's not Use All or a blank selection, then populate the VINTAGE
+%FOR %I %IN(%VINTAGES) 
+    //is it "Use All" from the Execute button??, then set to refresh with all vintage dates
+    %IF %I = %DEFAULT_VINTAGE %THEN
+       // %LET VINTAGE_DATE_LIST = %DEFAULT_VINTAGE + ",";
+        %LET VINTAGE_DATE_CSV = %VINTAGE_DATE_CSV + TOSTR(%I) + ",";
+        %LET USE_ALL = TRUE;
+        
+        %EXIT %FOR;
+        
+    //is it populated with a selection?
+    %ELSEIF LEN(%I) > 0 %THEN
+        %LET VINTAGE_DATE_CSV = %VINTAGE_DATE_CSV + TOSTR(%I) + ",";
+        
+    //if not populated with a selection, set to refresh with all vintage dates    
+    %ELSE
+       // %LET VINTAGE_DATE_LIST = %DEFAULT_VINTAGE + TOSTR(%I) + ",";
+        %LET VINTAGE_DATE_CSV = %VINTAGE_DATE_CSV + TOSTR(%I) + ",";
+        
+        %LET USE_ALL = TRUE;
+        
+        %EXIT %FOR;
+    %END;
+%NEXT;
+
+
+//substring out the last comma...
+%IF (LENGTH(%VINTAGE_DATE_LIST) > 0 AND %USE_ALL = FALSE) %THEN
+    %LET VINTAGE_DATE_CSV = LEFT(%VINTAGE_DATE_CSV, LENGTH(%VINTAGE_DATE_CSV)-1);
+%END;
+
+%LET VINTAGE_DATE_LIST = SPLIT(%VINTAGE_DATE_CSV, ",");
+
+
+
+//TODO:
+//check if the params are the same as before
+//1.) check if params are the same as those in the table, check if the params table exists
+//2.) if they are the same, do nothing
+//3.) if the param dates are same but vintage dates are different, just recalc vintage date specific data
+
+%LET VINTAGE_REFRESH = TRUE;
+%LET DATA_REFRESH = TRUE;
+
+%IF (EXISTTABLE("USER.PARAMS")) %THEN
+    //get data from params and data from param table and compare
+    DATA WORK.TEST;
+        SET USER.PARAMS;
+        
+        if (PORTFOLIO_SNAPSHOT_FUND = %PORT_SNAPSHOT_FUNDS_DATE AND DIRECTS_DATE = %DATE) THEN 
+            if (VINTAGE_DATES = %VINTAGE_DATE_CSV) THEN
+                %VINTAGE_REFRESH = FALSE;
+            else 
+                %VINTAGE_REFRESH = TRUE;
+            END;
+            %DATA_REFRESH = FALSE;
+        else 
+
+            %DATA_REFRESH = TRUE;
+            %VINTAGE_REFRESH = TRUE;
+        end;
+    RUN;
+
+    
+    DATA USER.PARAMS;
+        COLUMN DIRECTS_DATE TYPE = DATE;
+        COLUMN PORTFOLIO_SNAPSHOT_FUND TYPE = DATE;
+        COLUMN VINTAGE_DATES TYPE = STRING;
+
+        DIRECTS_DATE = %DATE;
+        PORTFOLIO_SNAPSHOT_FUND = %PORT_SNAPSHOT_FUNDS_DATE;
+        VINTAGE_DATES = %VINTAGE_DATE_CSV;
+
+        OUTPUT;
+    RUN;
+    
+%ELSE
+   DATA USER.PARAMS;
+        COLUMN DIRECTS_DATE TYPE = DATE;
+        COLUMN PORTFOLIO_SNAPSHOT_FUND TYPE = DATE;
+        COLUMN VINTAGE_DATES TYPE = STRING;
+
+        DIRECTS_DATE = %DATE;
+        PORTFOLIO_SNAPSHOT_FUND = %PORT_SNAPSHOT_FUNDS_DATE;
+        VINTAGE_DATES = %VINTAGE_DATE_CSV;
+
+        OUTPUT;
+    RUN;
+    
+    %LET VINTAGE_REFRESH = TRUE;
+%END;
+
+
+//if USER.DIRALL_LIST1 doesn't exist, then refresh the data so it does... this is needed for VINTAGE_REFRESH section to refresh correctly...
+%IF(EXISTTABLE("USER.DIRALL_LIST1") = FALSE) %THEN
+    %LET DATA_REFRESH = TRUE;
+%END;
+
+
+
+//if we change the vintage but the dates are the same then just refresh the vintage data, if we change the dates then refresh all cubes/tables
+%IF (%DATA_REFRESH) %THEN
+
+
+    //INCLUDE SCRIPTS HERE...
+    %INCLUDE "prg_PDE-DashBoard_Directs";
+
+    //set the dates to the snapshot date so that the funds table will have the correct FX and other date parameters
+    %LET DATE = %PORT_SNAPSHOT_FUNDS_DATE;
+    %LET ORIG_DATE = %PORT_SNAPSHOT_FUNDS_DATE;
+    %LET FX_RATE_DATE = %PORT_SNAPSHOT_FUNDS_DATE;
+
+    %INCLUDE "prg_inc_BuildTbl-FUND_LIST1";
+    //END FUNDS
+    
+    %ELSE
+    
+%END;
+
+%IF (%VINTAGE_REFRESH) %THEN
+
+    
+    //we need to assign the VINTAGE_DATE_LIST as the distinct list of vintages supplied in the DIRALL_LIST1 table when USE_ALL is TRUE, else it's just what is in VINTAGE_DATE_LIST
+    %IF (%USE_ALL) %THEN
+        //get the unique list...
+        PROC MEANS DATA = USER.DIRALL_LIST1  OUT = WORK.VINTAGE_LIST;
+            CLASS INV_YEAR;
+            FIRST INV_YEAR (NAME = VINTAGE);
+        RUN;
+
+        //assign as collection...
+        %LET VINTAGE_DATE_LIST = COLLECTION("WORK.VINTAGE_LIST", "VINTAGE");
+    %END;
+
+
+    //We need WORK.DIRALL_LIST1 to exist for the next INCLUDES, if we didn't run new data then it wouldn't exist so we need to set WORK.DIRALL_LIST1 to USER.DIRALL_LIST1, if that doesn't exist, then we need to refresh the data
+    %IF(EXISTTABLE("WORK.DIRALL_LIST1") = FALSE) %THEN
+        DATA WORK.DIRALL_LIST1;
+            SET USER.DIRALL_LIST1;
+        RUN;
+    %END;
+    
+    //Portfolio Snapshot (directs and funds put together...).
+    %INCLUDE "prg_inc_BuildTbl-PORTFOLIO_SNAPSHOT";
+    %INCLUDE "prg_inc_BuildTbl-PORTFOLIO_SNAPSHOT_ExcludingFunds";
+
+    //IRR By Vintage data, uses USER.DIRALL_LIST1
+    %INCLUDE "prg_inc_BuildTbl-IRR_BY_VINTAGE";
+%END;    

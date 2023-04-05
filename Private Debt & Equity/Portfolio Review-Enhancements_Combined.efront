@@ -1,0 +1,3262 @@
+//---------------------------------------------------------------------------
+//last change 11/15/17
+// Change 01/30/18 - Mezz loan - Rating added IQDELETED=0
+//         
+// DD 2018_02_28 Ticket ITM0251960
+// Added the follow SQL code MIN(INVINS_MAIN.USERTEXT46) INSTR_STATUS,
+//            LEFT JOIN VCINVESTMENTINS INVINS_MAIN ON INVINS_MAIN.IQID=INVINS.ACCOUNTINS              
+// DD 2019_02_19 to 2/26 Tab 5, 6, 6a restore original version from PD&E Dashboard
+//              Combined Tabs 6 and 6a, Tab 7 change IRR Cashflows - Qtr back and LastValuation Reporting date
+//              Tab 7 all columns except for Unrealized to pull data one Qtr back from reporting date, Unrealized pulls data
+//              based on reporting date
+//              added the following two operations 
+//              OPT.CODE = 'LN81'  -- 'LN - Conversion in 
+//              OPT.CODE = 'LN82'  -- 'LN - Conversion out
+// DD 2019_02_26 - added Code_SW to determine which programs to run in dashboard
+// Code      Description
+// 0001 = Quarterly PD&E Programs
+// 0002 = Tim's dashBoard													  
+// 0099 = All PD&E Programs Book
+//DD 2019_03_01 - added code to Tab 4 to handle realized 
+//        If INTERNALTRANS <> 0
+//            Then TOTALVALUE = V_EXIT + LASTVALUATION; 
+//          Else  
+//            TOTALVALUE = EXIT + LASTVALUATION;
+// DD 2019_02_26 - added Code_SW to determine which programs to run in dashboard
+// DD 2020_02_26 - added code for AssetListing - PDE
+// Code      Description
+// 0001 = Quarterly PD&E Programs
+// 0002 = Tim's dashBoard
+// 0003 = TAB 1 Summary Portfolio Snapshot										  
+// 0011 = AssetListing-PDE
+// 0099 = All PD&E Programs for Book Value & Holdings
+//DD 2019_03_01 - added code to Tab 4 to handle realized 
+//        If INTERNALTRANS <> 0
+//            Then TOTALVALUE = V_EXIT + LASTVALUATION; 
+//          Else  
+//            TOTALVALUE = EXIT + LASTVALUATION;
+//     --  Added the following OP codes to first query for "INVESTMENT" field
+//                          or OPT.CODE = 'LN70'  -- 'LN - Transfer in'
+//                          or OPT.CODE = 'LN71'  -- 'LN - Transfer out'
+//                          or OPT.CODE = 'LN81'  -- 'LN - Conversion in 
+//                          or OPT.CODE = 'LN82'  -- 'LN - Conversion out
+//
+//DD 2019_03_01 - code includes new Tab 12 coding that removes hard coded dates
+//DD 2019_03_05 - added Cast to Year fields to remove comma when export to Excel 
+//DD 2019_03_25 - Fixed Bug with Tab 5 was not creating a Local cube for Final output
+//                "Was creating memory Cube only for the output"
+//DD 2019_04_01 - fixed bug with Total Value being populated
+//DD 2019_04_29 - Added code to handle Tab 7b. Funds - Performance Analytics
+//DD 2019_05_24 - TAB 6. added the following OP Codes 
+//                       OPT.code = 'EQ42' -- 'EQ - Reinvestment of cash Dividend into Shares
+//                       OPT.code = 'EQ02' -- 'EQ - Subscription (Capital Issue with Commitment)
+//                       OPT.code = 'EQ81' -- 'EQ - Conversion In
+//                       OPT.code = 'EQ82' -- 'EQ - Conversion Out
+//DD 2019_06_07 - Added cusip to cube DIRLOAN_LIST1
+//DD 2019_07_07 - Pulled Current reporting date for Book Value for Tab 7 
+//TW 2019_07_01 - Adding 2 columns for ticket request 6025. Merged PDE "INDUSTRY" query to SFAACCOUNT table.
+//TW 2019_08_21 - Updated Egan-Jones Rating, NAIC Rating, Cash Coupon and PIK Coupon to pull the MAX record. Also updated Maturity Date to pull from new field
+//001 MB 2020_12_10 Added code to create PDE_DIRECT_INVESTMENT cube
+//002 MB 2021_01_19 Added code changes for 7. Partnerships QTR NEW to pull in intrinsic valuation on lag and Book Value based on report date (was previously on a lag)
+//BLR 2021_04_13 - Added LOOKUPDYN(); to resolve rating codes to their selected labels, this fixes a problem that occurs since we moved from a text field to a select drop down for the ratings.
+//---------------------------------------------------------------------------
+
+
+LIBNAME USER ".";
+
+%DEFINE REPORT_DATE;
+%DEFINE CALCULATE_IRR;
+%DEFINE USE_INVESTEE_CURR;
+
+%PARAM DATE LABEL="Enter Quarter End Date" TYPE=DATE DEFAULT=TODAY NOTNULL ;
+%param Code_SW label="Code_Switch Format - 0000: " type=text;
+%LET DATE=%DATE;
+%LET ORIG_DATE=%DATE;
+%let Current_Qtr_End_Date = FORMAT(QuarterEndDate(%Date), "MM/dd/yyyy");  // set end date to end of current Qtr other wise the the next line of code will not work   
+%let Prior_Qtr_1 = DateAdd("QUARTER", -1, %DATE); // %Current_Qtr_End_Date); 
+%let Prior_Qtr = FORMAT(MONTHENDDATE(%Prior_Qtr_1), "MM/dd/yyyy");            
+//PROC PRINT; PUT %Prior_Qtr_1; RUN;
+//PROC PRINT; PUT %Current_Qtr_End_Date; RUN;
+//  PROC PRINT; PUT %Date; RUN;
+//PROC PRINT; PUT CDATE(%Prior_Qtr_1); RUN;
+//PROC PRINT; PUT CDATE(%Prior_Qtr); RUN;
+
+/*------------------7. Funds by Vintage Old ---------------------*/ 
+%if %Code_SW = '0099'
+      or %Code_SW = '0011'
+   %then 
+        DATA WORK.FUNDMAST;
+        SQL "SELECT A.IQID AS FUND_ID,
+            A.FUND as FUNDNAME ,
+            VCPRT.PORTFOLIO as PORTFOLIO,
+            (case 
+                when A.USERTEXT43 = '1' then 'Debt Hedge Fund' 
+                when A.USERTEXT43 = '2' then 'Alternatives Preferred Stock' 
+                when A.USERTEXT43 = '3' then 'Senior Secured Loan' 
+                when A.USERTEXT43 = '4' then 'Subordinated Loan' 
+                when A.USERTEXT43 = '5' then 'Distressed Debt' 
+                when A.USERTEXT43 = '6' then 'Real Asset Debt' 
+                when A.USERTEXT43 = '7' then 'Senior Secured Loan' 
+                when A.USERTEXT43 = '8' then 'Subordinated Loan/Mezzanine Funds' 
+                when A.USERTEXT43 = '9' then 'Senior Secured Loan' 
+                when A.USERTEXT43 = '10' then 'Subordinated Loan' 
+                when A.USERTEXT43 = '11' then 'Senior Secured Loan' 
+                when A.USERTEXT43 = '12' then 'Subordinated Loan' 
+                when A.USERTEXT43 = '13' then 'Equity Hedge Fund' 
+                when A.USERTEXT43 = '14' then 'Alternatives Common Stock' 
+                when A.USERTEXT43 = '15' then 'Alternatives Preferred Stock' 
+                when A.USERTEXT43 = '16' then 'Warrants' 
+                when A.USERTEXT43 = '17' then 'Buyout' 
+                when A.USERTEXT43 = '18' then 'Growth' 
+                when A.USERTEXT43 = '19' then 'Real Asset Equity' 
+                when A.USERTEXT43 = '20' then 'Secondary' 
+                when A.USERTEXT43 = '21' then 'Venture Capital' 
+                when A.USERTEXT43 = '22' then 'Structured Alternatives Common Stock' 
+                when A.USERTEXT43 = '23' then 'Structured Alternatives Preferred Stock' 
+                when A.USERTEXT43 = '24' then 'Senior Loan' 
+                when A.USERTEXT43 = '25' then 'Subordinated Loan' 
+          end) + 
+            (case 
+                when A.USERTEXT44 = '1' then '/Co-Investment' 
+                when A.USERTEXT44 = '2' then '/Direct Investment' 
+                when A.USERTEXT44 = '3' then '/Co-Investment' 
+                when A.USERTEXT44 = '4' then '/Direct Investment' 
+                when A.USERTEXT44 = '5' then '/Co-Investment' 
+                when A.USERTEXT44 = '6' then '/Direct Investment' 
+                when A.USERTEXT44 = '7' then '/Agriculture' 
+                when A.USERTEXT44 = '8' then '/Energy' 
+                when A.USERTEXT44 = '9' then '/Infrastructure' 
+                when A.USERTEXT44 = '10' then '/Real Estate' 
+                when A.USERTEXT44 = '11' then '/Timber' 
+                when A.USERTEXT44 = '12' then '/Co-Investment' 
+                when A.USERTEXT44 = '13' then '/Co-Investment' 
+                when A.USERTEXT44 = '14' then '/Co-Investment' 
+                when A.USERTEXT44 = '15' then '/Agriculture' 
+                when A.USERTEXT44 = '16' then '/Energy' 
+                when A.USERTEXT44 = '17' then '/Infrastructure' 
+                when A.USERTEXT44 = '18' then '/Real Estate' 
+                when A.USERTEXT44 = '19' then '/Timber' 
+             else ' '                                                                                                                                                                                
+        end) as Sectors,
+            Cast(A.VINTAGEYEAR as varchar(4)) as 'Vintage',                                                                                                                                                                            
+            A.USERCURR3 as 'RGA_Orig_Commit', 
+            A.USERCURR2 as 'Total_Fund_Size',                                                                                                                                                                            
+            A.CURRENCY1 as 'CURRENCY',
+            A.CLOSINGDATE as 'CLOSEDATE',
+            A.ENDDATE  as 'ENDDATE', 
+            VCSUB.EXITDATE,
+            (case  when FSTAT.DESCR like 'Exited Fund%' then '0'  else '1' end ) as 'FACTIVESTATUS' ,
+            (case  when FSTAT.DESCR like 'Exited Fund%' then 'Exited' else 'Active' end ) as 'FUNDSTATUS_DashBrd',
+            (case 
+                when A.USERTEXT42 = '4' then 'Private Debt Fund' 
+                when A.USERTEXT42 = '9' then 'Private Equity Fund'                                                                                                                                                                             
+            end) as  FUND_CLASS3 ,
+            VCSUB.LIBELLE as INVESTORNAME,
+            A.USERNUM8 as RGA_SHARE, 
+            (CASE A.USERTEXT47 WHEN '1' THEN 'Yes' WHEN '0' THEN 'No' ELSE '' END) as LIM_PART_ADV, 
+            (CASE A.USERTEXT48 WHEN '1' THEN 'Yes' WHEN '0' THEN 'No' ELSE '' END) as BUYOUT_STRATEGIC,
+            DATEPART(YYYY,A.CLOSINGDATE) AS COMMITMENT_YEAR        
+            FROM VCFUND A
+             JOIN VCSUBSCRIBER VCSUB ON VCSUB.FUND = A.IQID AND VCSUB.IQDELETED=0 
+             JOIN VCPORTFOLIOASSET VCPRTAST ON VCPRTAST.SUBSCRIBER = VCSUB.IQID AND  VCPRTAST.IQDELETED=0   
+             JOIN VCPORTFOLIO VCPRT ON VCPRT.IQID = VCPRTAST.PORTFOLIO  AND  VCPRT.IQDELETED=0 AND VCPRT.PORTFOLIO IN ('PDE - Funds')                                                                                                                                                                         
+             JOIN ADMROLE REG ON A.IQREGIONID = REG.IQID AND REG.NAME IN ('Private Debt & Equity') 
+             JOIN VCFUNDSTAT FSTAT ON A.FSTATUS = FSTAT.CODE 
+            WHERE A.IQDELETED=0 
+            AND ((A.USERTEXT42 = '4' AND A.USERTEXT43 IN ('5','8','6')) OR A.USERTEXT42 = '9')
+            AND ??FILTER
+              ";
+        COLUMN FUND_ID; RUN; 
+        
+        //PROC PRINT DATA=WORK.FUNDMAST; RUN;
+        
+        //PROC PRINT; PUT %DATE; 
+        //%LET DATE = DATEADD("QUARTER", -1, %DATE);
+        //PUT %DATE;RUN;
+        
+        //VCF.FUND FUNDNAME,
+        DATA WORK.FUND_CF;
+            SQL "SELECT VCF.IQID FUND_ID, VCF.FUND FUND, SUBSCR.LIBELLE INVESTORNAME, OP.CLOSEDATE CLOSEDATE, Cast(DATEPART(YYYY,OP.CLOSEDATE) as varchar(4)) OP_YEAR, 
+              
+               COALESCE(SUBOP.AMOUNT02,0) + COALESCE(SUBOP.AMOUNT04,0) + COALESCE(SUBOP.AMOUNT08,0) + COALESCE(SUBOP.AMOUNT30,0) + 
+               COALESCE(SUBOP.AMOUNT50,0) + COALESCE(SUBOP.AMOUNT80,0) + COALESCE(SUBOP.AMOUNT60,0) AS CAPITALINVESTED,
+                  
+               COALESCE(SUBOP.AMOUNT24,0) + COALESCE(SUBOP.AMOUNT17,0) + COALESCE(SUBOP.AMOUNT13,0) + COALESCE(SUBOP.AMOUNT14,0) +
+               COALESCE(SUBOP.AMOUNT15,0) + COALESCE(SUBOP.AMOUNT23,0) + COALESCE(SUBOP.AMOUNT29,0) + COALESCE(SUBOP.AMOUNT28,0)
+                 AS RETURNOFCAPITAL
+            FROM VCFUND VCF 
+            JOIN VCFUNDSTAT FSTAT ON VCF.FSTATUS = FSTAT.CODE 
+            JOIN ADMROLE REG ON VCF.IQREGIONID = REG.IQID AND REG.NAME IN ('Private Debt & Equity')
+            JOIN VCFUNDOP OP ON OP.FUND = VCF.IQID AND OP.IQDELETED=0
+            JOIN VCFUNDOPTYPE VCFOPTYPE ON VCFOPTYPE.CODE=OP.OTYPE AND VCFOPTYPE.FILTER<>'00000000000000000000000000000000'
+            JOIN VCSUBSCRFUNDOPSHARE SUBOP ON SUBOP.FUNDOP = OP.IQID AND SUBOP.IQDELETED=0 AND SUBOP.FUNDOP IS NOT NULL
+            JOIN VCSUBSCRIBER SUBSCR ON SUBSCR.IQID = SUBOP.SUBSCRIBER AND SUBSCR.IQDELETED=0
+            JOIN VCPORTFOLIOASSET VCPRTAST ON VCPRTAST.SUBSCRIBER = SUBSCR.IQID AND  VCPRTAST.IQDELETED=0   
+             JOIN VCPORTFOLIO VCPRT ON VCPRT.IQID = VCPRTAST.PORTFOLIO  AND  VCPRT.IQDELETED=0 AND VCPRT.PORTFOLIO IN ('PDE - Funds')
+            WHERE 
+            VCF.IQDELETED=0 
+            AND ((VCF.USERTEXT42 = '4' AND VCF.USERTEXT43 IN ('5','8','6')) OR VCF.USERTEXT42 = '9')
+            AND OP.CLOSEDATE <= " & DML(%DATE) & " 
+            AND ( COALESCE(SUBOP.AMOUNT02,0) <> 0  OR COALESCE(SUBOP.AMOUNT04,0) <> 0 OR COALESCE(SUBOP.AMOUNT08,0) <> 0
+              OR COALESCE(SUBOP.AMOUNT30,0) <> 0 OR COALESCE(SUBOP.AMOUNT50,0) <> 0 OR COALESCE(SUBOP.AMOUNT80,0) <> 0 OR COALESCE(SUBOP.AMOUNT60,0) <> 0 
+              OR COALESCE(SUBOP.AMOUNT24,0)  <> 0 OR COALESCE(SUBOP.AMOUNT17,0)  <> 0 OR COALESCE(SUBOP.AMOUNT13,0)  <> 0 OR COALESCE(SUBOP.AMOUNT14,0)  <> 0 OR 
+              COALESCE(SUBOP.AMOUNT15,0)  <> 0 OR COALESCE(SUBOP.AMOUNT23,0)  <> 0 OR COALESCE(SUBOP.AMOUNT29,0)  <> 0 OR COALESCE(SUBOP.AMOUNT28,0)<>0 )
+         /*   GROUP BY VCF.IQID, VCF.FUND, SUBSCR.LIBELLE */
+            ORDER BY 1
+             " ; 
+            COLUMN FUND_ID;
+        RUN;
+        
+        //PROC PRINT DATA=WORK.FUND_CF; RUN;
+        
+        PROC MEANS DATA =WORK.FUND_CF OUT=WORK.FUND_CF2;
+        CLASS FUND_ID INVESTORNAME; 
+        SUM CAPITALINVESTED(NAME=CAPITALINVESTED);
+        SUM RETURNOFCAPITAL(NAME=RETURNOFCAPITAL);
+        RUN; 
+        
+        %LET DATE = %ORIG_DATE;
+        //PROC PRINT; PUT %DATE; RUN;
+        
+        /* For Capital Invested Graph */
+        DATA WORK.FUND_CF_YEAR;
+            SQL "SELECT VCF.IQID FUND_ID, VCF.FUND FUND, SUBSCR.LIBELLE INVESTORNAME, OP.CLOSEDATE CLOSEDATE, DATEPART(YYYY,OP.CLOSEDATE) INVEST_YEAR, 
+              
+               COALESCE(SUBOP.AMOUNT02,0) + COALESCE(SUBOP.AMOUNT04,0) + COALESCE(SUBOP.AMOUNT08,0) + COALESCE(SUBOP.AMOUNT30,0) + 
+               COALESCE(SUBOP.AMOUNT50,0) + COALESCE(SUBOP.AMOUNT80,0) + COALESCE(SUBOP.AMOUNT60,0) AS CAPITALINVESTED,
+                  
+               COALESCE(SUBOP.AMOUNT24,0) + COALESCE(SUBOP.AMOUNT17,0) + COALESCE(SUBOP.AMOUNT13,0) + COALESCE(SUBOP.AMOUNT14,0) +
+               COALESCE(SUBOP.AMOUNT15,0) + COALESCE(SUBOP.AMOUNT23,0) + COALESCE(SUBOP.AMOUNT29,0) + COALESCE(SUBOP.AMOUNT28,0)
+                 AS RETURNOFCAPITAL, 
+               'Funds' AS INVEST_TYPE
+            FROM VCFUND VCF 
+            JOIN VCFUNDSTAT FSTAT ON VCF.FSTATUS = FSTAT.CODE 
+            JOIN ADMROLE REG ON VCF.IQREGIONID = REG.IQID AND REG.NAME IN ('Private Debt & Equity')
+            JOIN VCFUNDOP OP ON OP.FUND = VCF.IQID AND OP.IQDELETED=0
+            JOIN VCFUNDOPTYPE VCFOPTYPE ON VCFOPTYPE.CODE=OP.OTYPE AND VCFOPTYPE.FILTER<>'00000000000000000000000000000000'
+            JOIN VCSUBSCRFUNDOPSHARE SUBOP ON SUBOP.FUNDOP = OP.IQID AND SUBOP.IQDELETED=0  AND SUBOP.FUNDOP IS NOT NULL
+            JOIN VCSUBSCRIBER SUBSCR ON SUBSCR.IQID = SUBOP.SUBSCRIBER AND SUBSCR.IQDELETED=0
+            JOIN VCPORTFOLIOASSET VCPRTAST ON VCPRTAST.SUBSCRIBER = SUBSCR.IQID AND  VCPRTAST.IQDELETED=0   
+             JOIN VCPORTFOLIO VCPRT ON VCPRT.IQID = VCPRTAST.PORTFOLIO  AND  VCPRT.IQDELETED=0 AND VCPRT.PORTFOLIO IN ('PDE - Funds')
+            WHERE 
+            VCF.IQDELETED=0 
+             -- 4;Private Debt Fund 5;Distressed Debt, 8;Subordinated Loan/Mezzanine Funds, 6;Real Asset Debt
+            AND ((VCF.USERTEXT42 = '4'                
+			       AND VCF.USERTEXT43 IN ('5','8','6') 
+				 ) 
+				 OR VCF.USERTEXT42 = '9')
+            AND OP.CLOSEDATE <= " & DML(%DATE) & " 
+            AND ( COALESCE(SUBOP.AMOUNT02,0) <> 0  OR COALESCE(SUBOP.AMOUNT04,0) <> 0 OR COALESCE(SUBOP.AMOUNT08,0) <> 0
+              OR COALESCE(SUBOP.AMOUNT30,0) <> 0 OR COALESCE(SUBOP.AMOUNT50,0) <> 0 OR COALESCE(SUBOP.AMOUNT80,0) <> 0 OR COALESCE(SUBOP.AMOUNT60,0) <> 0 
+              OR COALESCE(SUBOP.AMOUNT24,0)  <> 0 OR COALESCE(SUBOP.AMOUNT17,0)  <> 0 OR COALESCE(SUBOP.AMOUNT13,0)  <> 0 OR COALESCE(SUBOP.AMOUNT14,0)  <> 0 OR 
+              COALESCE(SUBOP.AMOUNT15,0)  <> 0 OR COALESCE(SUBOP.AMOUNT23,0)  <> 0 OR COALESCE(SUBOP.AMOUNT29,0)  <> 0 OR COALESCE(SUBOP.AMOUNT28,0)<>0 )
+         /*   GROUP BY VCF.IQID, VCF.FUND, SUBSCR.LIBELLE */
+            ORDER BY 1
+             " ; 
+            COLUMN FUND_ID;
+        RUN;
+        
+        //PROC PRINT DATA=WORK.FUND_CF; RUN;
+        
+        DATA WORK.FUND_CF_YEAR;
+        MERGE WORK.FUNDMAST(IN=IN1) WORK.FUND_CF_YEAR(IN=IN2);
+        BY FUND_ID INVESTORNAME;
+        IF (IN1 AND IN2) THEN OUTPUT;
+        END;
+        RUN; 
+
+        Data WORK.FUND_CF_YEAR;
+          set WORK.FUND_CF_YEAR(where closedate <= %Date);
+        RUN;  
+
+        /* For Capital Invested Graph */
+        //PROC PRINT DATA=WORK.FUND_CF_YEAR; RUN;
+        
+        DATA WORK.FUND_LIST;
+        //MERGE WORK.FUNDMAST(IN=IN1) WORK.FUND_CF2(IN=IN2);
+        MERGE WORK.FUNDMAST(IN=IN1) WORK.FUND_CF2;
+        By FUND_ID INVESTORNAME  ;
+        //If (IN1 and IN2) then Output;
+        IF (IN1) THEN OUTPUT;
+        END;
+        RUN;  
+        //PROC PRINT DATA=WORK.FUND_LIST; RUN;   
+                                                                                                                                                                                               
+        PROC FAQUERY Query="IT Admin - Program Queries\Positions-PortRev" (DATE=%DATE) ; 
+            TABLE "Default"  OUT=WORK.QRY_POSITIONS_PORTREV;
+        RUN;
+        
+        //PROC PRINT DATA=WORK.QRY_POSITIONS_PORTREV; RUN;
+        
+        DATA WORK.FUND_LIST;
+        MERGE WORK.FUND_LIST(IN=IN1) WORK.QRY_POSITIONS_PORTREV(IN=IN2);
+        By FUND_ID INVESTORNAME  ;
+        If (IN1 and IN2) then Output;
+        End;
+        RUN;         
+        //PROC PRINT DATA =  WORK.FUND_LIST; RUN; 
+        
+        Data WORK.FUND_LIST;
+          set WORK.FUND_LIST(where closedate <= %Date);
+        RUN;  
+
+        DATA WORK.FUND_LIST(DROP=FUND GAAP_BOOK_VALUE GL_COST_ELIM);
+        SET WORK.FUND_LIST;
+         COLUMN CURRENTCOST  TYPE=DOUBLE;  CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM;
+        RUN;
+        //PROC PRINT DATA =  WORK.FUND_LIST; RUN;     
+        //0809                                                                                                                                                                                        
+                                                                                                                                                                                                
+        PROC MEANS DATA = FCE.FUNDOPERATIONS(WHERE OPERATIONDATE <= %DATE) OUT=WORK.TIRR;
+        CLASS FUND_ID OPERATIONDATE; 
+        VAR  FUNDNAME; 
+        SUM CASH(NAME=IRRNET);
+        RUN; 
+        
+        PROC MEANS DATA =  WORK.FUND_LIST OUT=WORK.TVALUATION;
+        CLASS FUND_ID; 
+        VAR  FUNDNAME; 
+        SUM LASTVALUATION(NAME=IRRNET);
+        RUN; 
+        
+        DATA WORK.TIRR;
+            SET  WORK.TIRR(IN=T1) WORK.TVALUATION; 
+            IF IRRNET IS NULL THEN IRRNET=0; END; 
+            COLUMN SORT_IRR TYPE=INTEGER; 
+            IF T1 THEN 
+              SORT_IRR=0;  
+            ELSE 
+              SORT_IRR=1; 
+              OPERATIONDATE=%DATE;
+            END;                                                                                                                                                                                                
+            _OUTPUT_=IRRNET <> 0 OR SORT_IRR = 1;
+        RUN; 
+        
+        PROC SORT DATA = WORK.TIRR; 
+          BY FUND_ID FUNDNAME SORT_IRR OPERATIONDATE; 
+        RUN; 
+        
+        DATA WORK.FUND_LIST1;
+        MERGE WORK.FUND_LIST(IN=IN1) WORK.TIRR(IN=IN2);
+        By FUND_ID;
+        If (IN1 and IN2) then Output;
+        End;
+        RUN;
+                                                                                                                                                                                            
+        DATA FUND_LIST1(DROP = ENDDATE); 
+        SET WORK.FUND_LIST1;  
+        COLUMN TOTALVALUE TYPE=FLOAT; 
+        TOTALVALUE= RETURNOFCAPITAL + LASTVALUATION; 
+        RUN;  
+        //PROC PRINT DATA =  work.FUND_LIST1;title 'FUND_LIST1_Output'; RUN;    
+
+%end;
+/*------------------7. Funds by Vintage OLD-------------------*/ 
+
+
+/*------------------7. Partnerships QTR NEW ---------------------*/ 
+%if %Code_SW = '0001'
+    or %Code_SW = '0003'													  
+   %then 
+        DATA WORK.FUNDMAST;
+        SQL "SELECT A.IQID  AS FUND_ID,
+            A.FUND          as FUNDNAME ,
+            VCPRT.PORTFOLIO as PORTFOLIO,
+            (case 
+                when A.USERTEXT43 = '1' then 'Debt Hedge Fund' 
+                when A.USERTEXT43 = '2' then 'Alternatives Preferred Stock' 
+                when A.USERTEXT43 = '3' then 'Senior Secured Loan' 
+                when A.USERTEXT43 = '4' then 'Subordinated Loan' 
+                when A.USERTEXT43 = '5' then 'Distressed Debt' 
+                when A.USERTEXT43 = '6' then 'Real Asset Debt' 
+                when A.USERTEXT43 = '7' then 'Senior Secured Loan' 
+                when A.USERTEXT43 = '8' then 'Subordinated Loan/Mezzanine Funds' 
+                when A.USERTEXT43 = '9' then 'Senior Secured Loan' 
+                when A.USERTEXT43 = '10' then 'Subordinated Loan' 
+                when A.USERTEXT43 = '11' then 'Senior Secured Loan' 
+                when A.USERTEXT43 = '12' then 'Subordinated Loan' 
+                when A.USERTEXT43 = '13' then 'Equity Hedge Fund' 
+                when A.USERTEXT43 = '14' then 'Alternatives Common Stock' 
+                when A.USERTEXT43 = '15' then 'Alternatives Preferred Stock' 
+                when A.USERTEXT43 = '16' then 'Warrants' 
+                when A.USERTEXT43 = '17' then 'Buyout' 
+                when A.USERTEXT43 = '18' then 'Growth' 
+                when A.USERTEXT43 = '19' then 'Real Asset Equity' 
+                when A.USERTEXT43 = '20' then 'Secondary' 
+                when A.USERTEXT43 = '21' then 'Venture Capital' 
+                when A.USERTEXT43 = '22' then 'Structured Alternatives Common Stock' 
+                when A.USERTEXT43 = '23' then 'Structured Alternatives Preferred Stock' 
+                when A.USERTEXT43 = '24' then 'Senior Loan' 
+                when A.USERTEXT43 = '25' then 'Subordinated Loan' 
+             end) + 
+            (case 
+                when A.USERTEXT44 = '1' then '/Co-Investment' 
+                when A.USERTEXT44 = '2' then '/Direct Investment' 
+                when A.USERTEXT44 = '3' then '/Co-Investment' 
+                when A.USERTEXT44 = '4' then '/Direct Investment' 
+                when A.USERTEXT44 = '5' then '/Co-Investment' 
+                when A.USERTEXT44 = '6' then '/Direct Investment' 
+                when A.USERTEXT44 = '7' then '/Agriculture' 
+                when A.USERTEXT44 = '8' then '/Energy' 
+                when A.USERTEXT44 = '9' then '/Infrastructure' 
+                when A.USERTEXT44 = '10' then '/Real Estate' 
+                when A.USERTEXT44 = '11' then '/Timber' 
+                when A.USERTEXT44 = '12' then '/Co-Investment' 
+                when A.USERTEXT44 = '13' then '/Co-Investment' 
+                when A.USERTEXT44 = '14' then '/Co-Investment' 
+                when A.USERTEXT44 = '15' then '/Agriculture' 
+                when A.USERTEXT44 = '16' then '/Energy' 
+                when A.USERTEXT44 = '17' then '/Infrastructure' 
+                when A.USERTEXT44 = '18' then '/Real Estate' 
+                when A.USERTEXT44 = '19' then '/Timber' 
+             else ' '                                                                                                                                                                                
+            end)          as Sectors,
+            cast(A.VINTAGEYEAR  as varchar(4)) as 'Vintage',                                                                                                                                                                            
+            A.USERCURR3   as 'RGA_Orig_Commit', 
+            A.USERCURR2   as 'Total_Fund_Size',                                                                                                                                                                            
+            A.CURRENCY1   as 'CURRENCY',
+            A.CLOSINGDATE as 'CLOSEDATE',
+            A.ENDDATE     as 'ENDDATE', 
+            VCSUB.EXITDATE,
+            case  when FSTAT.DESCR like 'Exited Fund%' 
+                then '0'  
+              else '1' 
+            end           as 'FACTIVESTATUS' ,
+            case  when FSTAT.DESCR like 'Exited Fund%' 
+                then 'Exited' 
+              else 'Active' 
+            end           as 'FUNDSTATUS_DashBrd',
+            case 
+                when A.USERTEXT42 = '4' then 'Private Debt Fund' 
+                when A.USERTEXT42 = '9' then 'Private Equity Fund'                                                                                                                                                                             
+            end           as  FUND_CLASS3 ,
+            VCSUB.LIBELLE as INVESTORNAME,
+            A.USERNUM8    as RGA_SHARE, 
+            CASE A.USERTEXT47 
+               WHEN '1' 
+                 THEN 'Yes' 
+               WHEN '0' 
+                 THEN 'No' 
+               ELSE '' 
+            END          as LIM_PART_ADV, 
+            CASE A.USERTEXT48 
+               WHEN '1' 
+                 THEN 'Yes' 
+               WHEN '0' 
+                 THEN 'No' 
+               ELSE '' 
+            END          as BUYOUT_STRATEGIC,
+            cast(DATEPART(YYYY,A.CLOSINGDATE)  as varchar(4)) AS COMMITMENT_YEAR        
+            FROM VCFUND A
+             JOIN VCSUBSCRIBER VCSUB 
+               ON VCSUB.FUND = A.IQID 
+                 AND VCSUB.IQDELETED=0 
+             JOIN VCPORTFOLIOASSET VCPRTAST 
+               ON VCPRTAST.SUBSCRIBER = VCSUB.IQID 
+                 AND  VCPRTAST.IQDELETED=0   
+             JOIN VCPORTFOLIO VCPRT 
+               ON VCPRT.IQID = VCPRTAST.PORTFOLIO  
+                 AND  VCPRT.IQDELETED=0 
+                 AND VCPRT.PORTFOLIO IN ('PDE - Funds')                                                                                                                                                                         
+             JOIN ADMROLE REG 
+               ON A.IQREGIONID = REG.IQID 
+                 AND REG.NAME IN ('Private Debt & Equity') 
+             JOIN VCFUNDSTAT FSTAT 
+               ON A.FSTATUS = FSTAT.CODE 
+            WHERE A.IQDELETED=0 
+              AND ((A.USERTEXT42 = '4' 
+                    AND A.USERTEXT43 IN ('5','8','6')) 
+                   OR A.USERTEXT42 = '9')
+              AND ??FILTER
+              ";
+        COLUMN FUND_ID; 
+      RUN;    
+
+
+      PROC FAQUERY Query="IT Admin - Program Queries\qry_Gl_Income_by_Fund" (DATE=CDATE(%Prior_Qtr)) ; //002 changed to pull GL income on a lag
+        TABLE "Default"  
+        OUT = work.Fund_Gl_Income;
+      RUN;
+      // %LET NETPATH = Gettemppath() + "\Fund_Gl_Income.xlsx";
+      //     PROC EXPORTEXCEL FILE=CSTR(%NETPATH) DROP;
+      //     TABLE= WORK.Fund_Gl_Income SHEETNAME="Fund_Gl_Income";
+      // RUN;
+      
+      DATA WORK.FUNDMAST;
+        merge WORK.FUNDMAST(IN = IN1) Work.Fund_Gl_Income;
+        by FUND_ID;
+        IF (IN1) THEN OUTPUT;
+        End;
+      RUN;  
+      //%LET NETPATH = Gettemppath() + "\FUNDMAST.xlsx";
+      //     PROC EXPORTEXCEL FILE=CSTR(%NETPATH) DROP;
+      //     TABLE= WORK.FUNDMAST SHEETNAME="FUNDMAST";
+      //RUN;
+        
+        DATA WORK.FUND_CF;
+            SQL "SELECT VCF.IQID FUND_ID, VCF.FUND FUND, SUBSCR.LIBELLE INVESTORNAME, OP.CLOSEDATE CLOSEDATE, Cast(DATEPART(YYYY,OP.CLOSEDATE)  as varchar(4)) OP_YEAR, 
+                   COALESCE(SUBOP.AMOUNT02,0) + COALESCE(SUBOP.AMOUNT04,0) + COALESCE(SUBOP.AMOUNT08,0) + COALESCE(SUBOP.AMOUNT30,0) + 
+                   COALESCE(SUBOP.AMOUNT50,0) + COALESCE(SUBOP.AMOUNT80,0) + COALESCE(SUBOP.AMOUNT60,0) AS CAPITALINVESTED,
+                   COALESCE(SUBOP.AMOUNT24,0) + COALESCE(SUBOP.AMOUNT17,0) + COALESCE(SUBOP.AMOUNT13,0) + COALESCE(SUBOP.AMOUNT14,0) +
+                   COALESCE(SUBOP.AMOUNT15,0) + COALESCE(SUBOP.AMOUNT23,0) + COALESCE(SUBOP.AMOUNT29,0) + COALESCE(SUBOP.AMOUNT28,0)
+                     AS RETURNOFCAPITAL
+                FROM VCFUND VCF 
+                    JOIN VCFUNDSTAT FSTAT 
+                      ON VCF.FSTATUS = FSTAT.CODE 
+                    JOIN ADMROLE REG 
+                      ON VCF.IQREGIONID = REG.IQID 
+                        AND REG.NAME IN ('Private Debt & Equity')
+                    JOIN VCFUNDOP OP 
+                      ON OP.FUND = VCF.IQID 
+                        AND OP.IQDELETED=0
+                    JOIN VCFUNDOPTYPE VCFOPTYPE ON VCFOPTYPE.CODE=OP.OTYPE AND VCFOPTYPE.FILTER<>'00000000000000000000000000000000'
+                    JOIN VCSUBSCRFUNDOPSHARE SUBOP ON SUBOP.FUNDOP = OP.IQID AND SUBOP.IQDELETED=0 AND SUBOP.FUNDOP IS NOT NULL
+                    JOIN VCSUBSCRIBER SUBSCR ON SUBSCR.IQID = SUBOP.SUBSCRIBER AND SUBSCR.IQDELETED=0
+                    JOIN VCPORTFOLIOASSET VCPRTAST ON VCPRTAST.SUBSCRIBER = SUBSCR.IQID AND  VCPRTAST.IQDELETED=0   
+                    JOIN VCPORTFOLIO VCPRT ON VCPRT.IQID = VCPRTAST.PORTFOLIO  AND  VCPRT.IQDELETED=0 AND VCPRT.PORTFOLIO IN ('PDE - Funds')
+            WHERE 
+            VCF.IQDELETED=0 
+            AND ((VCF.USERTEXT42 = '4' AND VCF.USERTEXT43 IN ('5','8','6')) OR VCF.USERTEXT42 = '9')
+            AND (OP.CLOSEDATE) <= " & DML(%Prior_Qtr) & "        
+            AND ( COALESCE(SUBOP.AMOUNT02,0) <> 0  OR COALESCE(SUBOP.AMOUNT04,0) <> 0 OR COALESCE(SUBOP.AMOUNT08,0) <> 0
+              OR COALESCE(SUBOP.AMOUNT30,0) <> 0 OR COALESCE(SUBOP.AMOUNT50,0) <> 0 OR COALESCE(SUBOP.AMOUNT80,0) <> 0 OR COALESCE(SUBOP.AMOUNT60,0) <> 0 
+              OR COALESCE(SUBOP.AMOUNT24,0)  <> 0 OR COALESCE(SUBOP.AMOUNT17,0)  <> 0 OR COALESCE(SUBOP.AMOUNT13,0)  <> 0 OR COALESCE(SUBOP.AMOUNT14,0)  <> 0 OR 
+              COALESCE(SUBOP.AMOUNT15,0)  <> 0 OR COALESCE(SUBOP.AMOUNT23,0)  <> 0 OR COALESCE(SUBOP.AMOUNT29,0)  <> 0 OR COALESCE(SUBOP.AMOUNT28,0)<>0 )
+         /*   GROUP BY VCF.IQID, VCF.FUND, SUBSCR.LIBELLE */
+            ORDER BY 1
+             " ; 
+            COLUMN FUND_ID;
+        RUN;
+        
+        //PROC PRINT DATA=WORK.FUND_CF; RUN;
+        
+        PROC MEANS DATA =WORK.FUND_CF OUT=WORK.FUND_CF2;
+        CLASS FUND_ID INVESTORNAME; 
+        SUM CAPITALINVESTED(NAME=CAPITALINVESTED);
+        SUM RETURNOFCAPITAL(NAME=RETURNOFCAPITAL);
+        RUN; 
+        
+        %LET DATE = %ORIG_DATE;
+        //PROC PRINT; PUT %DATE; RUN;
+        
+        /* For Capital Invested Graph */
+        DATA WORK.FUND_CF_YEAR;  
+            SQL "SELECT VCF.IQID FUND_ID, VCF.FUND FUND, SUBSCR.LIBELLE INVESTORNAME, OP.CLOSEDATE CLOSEDATE, DATEPART(YYYY,OP.CLOSEDATE) INVEST_YEAR, 
+               COALESCE(SUBOP.AMOUNT02,0) + COALESCE(SUBOP.AMOUNT04,0) + COALESCE(SUBOP.AMOUNT08,0) + COALESCE(SUBOP.AMOUNT30,0) + 
+               COALESCE(SUBOP.AMOUNT50,0) + COALESCE(SUBOP.AMOUNT80,0) + COALESCE(SUBOP.AMOUNT60,0) AS CAPITALINVESTED,
+               COALESCE(SUBOP.AMOUNT24,0) + COALESCE(SUBOP.AMOUNT17,0) + COALESCE(SUBOP.AMOUNT13,0) + COALESCE(SUBOP.AMOUNT14,0) +
+               COALESCE(SUBOP.AMOUNT15,0) + COALESCE(SUBOP.AMOUNT23,0) + COALESCE(SUBOP.AMOUNT29,0) + COALESCE(SUBOP.AMOUNT28,0)
+                 AS RETURNOFCAPITAL, 
+               'Funds' AS INVEST_TYPE
+            FROM VCFUND VCF 
+            JOIN VCFUNDSTAT FSTAT ON VCF.FSTATUS = FSTAT.CODE 
+            JOIN ADMROLE REG ON VCF.IQREGIONID = REG.IQID AND REG.NAME IN ('Private Debt & Equity')
+            JOIN VCFUNDOP OP ON OP.FUND = VCF.IQID AND OP.IQDELETED=0
+            JOIN VCFUNDOPTYPE VCFOPTYPE ON VCFOPTYPE.CODE=OP.OTYPE AND VCFOPTYPE.FILTER<>'00000000000000000000000000000000'
+            JOIN VCSUBSCRFUNDOPSHARE SUBOP ON SUBOP.FUNDOP = OP.IQID AND SUBOP.IQDELETED=0  AND SUBOP.FUNDOP IS NOT NULL
+            JOIN VCSUBSCRIBER SUBSCR ON SUBSCR.IQID = SUBOP.SUBSCRIBER AND SUBSCR.IQDELETED=0
+            JOIN VCPORTFOLIOASSET VCPRTAST ON VCPRTAST.SUBSCRIBER = SUBSCR.IQID AND  VCPRTAST.IQDELETED=0   
+             JOIN VCPORTFOLIO VCPRT ON VCPRT.IQID = VCPRTAST.PORTFOLIO  AND  VCPRT.IQDELETED=0 AND VCPRT.PORTFOLIO IN ('PDE - Funds')
+            WHERE 
+            VCF.IQDELETED=0 
+            AND ((VCF.USERTEXT42 = '4' AND VCF.USERTEXT43 IN ('5','8','6')) OR VCF.USERTEXT42 = '9')
+            AND (OP.CLOSEDATE) <= " & DML(%Prior_Qtr) & "    
+            AND ( COALESCE(SUBOP.AMOUNT02,0) <> 0  OR COALESCE(SUBOP.AMOUNT04,0) <> 0 OR COALESCE(SUBOP.AMOUNT08,0) <> 0
+              OR COALESCE(SUBOP.AMOUNT30,0) <> 0 OR COALESCE(SUBOP.AMOUNT50,0) <> 0 OR COALESCE(SUBOP.AMOUNT80,0) <> 0 OR COALESCE(SUBOP.AMOUNT60,0) <> 0 
+              OR COALESCE(SUBOP.AMOUNT24,0)  <> 0 OR COALESCE(SUBOP.AMOUNT17,0)  <> 0 OR COALESCE(SUBOP.AMOUNT13,0)  <> 0 OR COALESCE(SUBOP.AMOUNT14,0)  <> 0 OR 
+              COALESCE(SUBOP.AMOUNT15,0)  <> 0 OR COALESCE(SUBOP.AMOUNT23,0)  <> 0 OR COALESCE(SUBOP.AMOUNT29,0)  <> 0 OR COALESCE(SUBOP.AMOUNT28,0)<>0 )
+            ----  GROUP BY VCF.IQID, VCF.FUND, SUBSCR.LIBELLE 
+            ORDER BY 1
+             " ; 
+            COLUMN FUND_ID;
+        RUN;
+        //PROC PRINT DATA=WORK.FUND_CF; RUN;
+        
+        DATA WORK.FUND_CF_YEAR;
+            MERGE WORK.FUNDMAST(IN=IN1) WORK.FUND_CF_YEAR(IN=IN2);
+            BY FUND_ID INVESTORNAME;
+            IF (IN1 AND IN2) THEN OUTPUT;
+            END;
+        RUN; 
+        //PROC PRINT DATA=WORK.FUND_CF_YEAR; RUN;
+        
+        Data WORK.FUND_CF_YEAR;
+          set WORK.FUND_CF_YEAR(where CDATE(closedate) <= CDATE(%Prior_Qtr));        //002 added CDATE before both dates
+        RUN;  
+       // PROC PRINT DATA=WORK.FUND_CF_YEAR;title "FUND_CF_YEAR"; RUN;
+          
+        
+        //For Capital Invested Graph 
+        DATA WORK.FUND_LIST;
+            //MERGE WORK.FUNDMAST(IN=IN1) WORK.FUND_CF2(IN=IN2);
+            MERGE WORK.FUNDMAST(IN=IN1) WORK.FUND_CF2;
+            By FUND_ID INVESTORNAME  ;
+            //If (IN1 and IN2) then Output;
+            IF (IN1) THEN OUTPUT;
+            END;
+        RUN;  
+        //PROC PRINT DATA=WORK.FUND_LIST;title 'FUND_LIST merge WORK.FUNDMAST(IN=IN1) WORK.FUND_CF2';  RUN;   
+        // output fields -- FUND_ID, FUND, INVESTORNAME, GL_COST_ELIM, GAAP_BOOK_VALUE, LASTVALUATION, REMAININGCOMMITMENT, GAAP_INCOME_ITD, Q_CUSIP                                                                                                                                                                                        
+        //PROC PRINT; PUT DML(%Prior_Qtr); RUN;
+        PROC FAQUERY Query="IT Admin - Program Queries\Positions-PortRev" (DATE = CDATE(%Prior_Qtr)) ;        //002 added CDATE   
+            TABLE "Default"  OUT=WORK.QRY_POSITIONS_PORTREV;
+        RUN;
+        //PROC PRINT DATA=WORK.QRY_POSITIONS_PORTREV;title 'Prior_Date_QRY_POSITIONS_PORTREV output'; RUN;
+        
+        //------------------------------------------------ Get Reporting Date LASTVALUATION
+        PROC FAQUERY Query="IT Admin - Program Queries\Positions-PortRev" (DATE=%Date) ; 
+            TABLE "Default"  OUT=WORK.Cur_Date_QRY_POSITIONS_PORTREV;
+        RUN;
+        //PROC PRINT DATA=WORK.Cur_Date_QRY_POSITIONS_PORTREV;title 'Current_Date_QRY_POSITIONS_PORTREV output'; RUN;
+
+//---------------------
+// Prior Rpeorting Date Last Valuation 
+       Data WORK.Current_Date_QRY_POSITIONS_PORTREV (Keep = FUND_ID FUND INVESTORNAME LASTVALUATION Q_CUSIP Report_CURRENTCOST );
+        Set WORK.QRY_POSITIONS_PORTREV; // changed because previously needed to pull in current valuation for prior period, but no longer need to
+          COLUMN Report_CURRENTCOST  TYPE=DOUBLE; Report_CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM;
+        Run;
+        
+       //002 begin
+       DATA WORK.Curr_BV (Keep = FUND_ID FUND INVESTORNAME Q_CUSIP Report_CURRENTCOST);
+       SET WORK.Cur_Date_QRY_POSITIONS_PORTREV; 
+          COLUMN Report_CURRENTCOST  TYPE=DOUBLE; 
+          Report_CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM;
+        Run;
+       //002 end 
+       
+       // PROC PRINT DATA=WORK.Current_Date_QRY_POSITIONS_PORTREV;title 'Current_Date_QRY_POSITIONS_PORTREV limited Fields'; RUN;
+// Current Rpeorting Date Last Valuation 
+//       Data WORK.Current_Date_QRY_POSITIONS_PORTREV (Keep = FUND_ID FUND INVESTORNAME LASTVALUATION Q_CUSIP Report_CURRENTCOST );
+//        Set WORK.Current_Date_QRY_POSITIONS_PORTREV;
+//          COLUMN Report_CURRENTCOST  TYPE=DOUBLE; Report_CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM;
+//        Run;
+       // PROC PRINT DATA=WORK.Current_Date_QRY_POSITIONS_PORTREV;title 'Current_Date_QRY_POSITIONS_PORTREV limited Fields'; RUN;
+//---------------------
+
+//        Data WORK.Current_Date_QRY_POSITIONS_PORTREV (Keep = FUND_ID FUND INVESTORNAME LASTVALUATION Q_CUSIP );
+//        Set WORK.Current_Date_QRY_POSITIONS_PORTREV;
+//        Run;
+        //PROC PRINT DATA=WORK.Current_Date_QRY_POSITIONS_PORTREV;title 'Current_Date_QRY_POSITIONS_PORTREV limited Fields'; RUN;
+        //------------------------------------------------
+        
+        DATA WORK.FUND_LIST;
+            MERGE WORK.FUND_LIST(IN=IN1) WORK.QRY_POSITIONS_PORTREV;
+            By FUND_ID INVESTORNAME  ;
+            If (IN1) then Output;
+            End;
+        RUN;         
+        //PROC PRINT DATA =  WORK.FUND_LIST; RUN; 
+        Data WORK.FUND_LIST;
+          set WORK.FUND_LIST(where CDATE(closedate) <= CDATE(%Prior_Qtr));        //002 added CDATE before both dates
+        RUN;  
+ ///////////////////////////////////////////       
+        DATA WORK.FUND_LIST(DROP=FUND GAAP_BOOK_VALUE GL_COST_ELIM);
+            SET WORK.FUND_LIST;
+            COLUMN REPORT_CURRENTCOST TYPE=DOUBLE;  REPORT_CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM;    
+          /////  COLUMN CURRENTCOST  TYPE=DOUBLE;  CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM;
+        RUN;
+        //PROC PRINT DATA =  WORK.FUND_LIST;title 'FUND_LIST '; RUN;     
+        //0809                                                                                                                                                                                        
+
+        PROC MEANS DATA = FCE.FUNDOPERATIONS(WHERE CDATE(OPERATIONDATE) <= CDATE(%Prior_Qtr))        //002 added CDATE
+        //PROC MEANS DATA = FCE.FUNDOPERATIONS(WHERE OPERATIONDATE<=%Date) 
+            OUT=WORK.TIRR;  //2020_2_18 changed to %Date
+            CLASS FUND_ID OPERATIONDATE; 
+            VAR  FUNDNAME; 
+            SUM CASH(NAME=IRRNET);
+        RUN; 
+        //PROC PRINT DATA = work.TIRR; title 'TIRR output1'; RUN;    
+        
+        PROC MEANS DATA = WORK.FUND_LIST OUT=WORK.TVALUATION;
+            CLASS FUND_ID; 
+            VAR  FUNDNAME; 
+            SUM LASTVALUATION(NAME=IRRNET);
+        RUN; 
+        //PROC PRINT DATA = work.TVALUATION; title 'TIRR output2'; RUN;    
+        
+        DATA WORK.TIRR;
+            SET  WORK.TIRR(IN=T1) WORK.TVALUATION; 
+            IF IRRNET IS NULL THEN IRRNET=0; END;     
+            COLUMN SORT_IRR TYPE=INTEGER;     
+            IF T1 THEN 
+            SORT_IRR=0;  
+            ELSE 
+            SORT_IRR=1; 
+            OPERATIONDATE=CDATE(%Prior_Qtr);    //002 changed from %DATE to prior quarter
+            END;                                                                                                                                                                                            
+            _OUTPUT_=IRRNET <>0 OR SORT_IRR=1;
+        RUN; 
+        //PROC PRINT DATA =  work.TVALUATION;title 'TVALUATION output'; RUN;    
+        
+        PROC SORT DATA = WORK.TIRR; 
+            BY FUND_ID FUNDNAME SORT_IRR OPERATIONDATE; 
+        RUN; 
+        
+        DATA WORK.FUND_LIST1 (Drop = LASTVALUATION);
+            MERGE WORK.FUND_LIST(IN=IN1) WORK.TIRR(IN=IN2);
+            By FUND_ID;
+            If (IN1 and IN2) then Output;
+            End;
+        RUN;
+        //PROC PRINT DATA =  work.FUND_LIST1;title 'FUND_LIST1 Merge with WORK.TIRR'; RUN;    
+        
+        //--------------------------------- Merge Reporting Date LASTVALUATION
+        //PROC PRINT DATA =  work.Current_Date_QRY_POSITIONS_PORTREV;title 'Current_Date_QRY_POSITIONS_PORTREV Cube'; RUN;    
+        DATA WORK.FUND_LIST1;
+            MERGE WORK.FUND_LIST1(IN=IN1) WORK.Current_Date_QRY_POSITIONS_PORTREV(IN=IN2); //WORK.QRY_POSITIONS_PORTREV(IN=IN2);
+            By FUND_ID INVESTORNAME Q_CUSIP;
+            If (IN1 and IN2) then Output;
+            End;
+        RUN;
+        //PROC PRINT DATA =  work.FUND_LIST1;title 'FUND_LIST1 after Merge with reporting date LastValuation'; RUN;    
+        
+        //------------------------------------
+        DATA WORK.IRR_SORT (keep = FUND_ID INVESTORNAME Q_CUSIP SORT_IRR LastValuation);
+            SET WORK.FUND_LIST1; 
+            IF SORT_IRR = 1 
+               then OUTPUT; 
+            END;     
+        RUN; 
+        //PROC PRINT DATA =  work.IRR_SORT;title 'IRR_SORT = 1 LastValuation'; RUN;    
+        DATA WORK.FUND_LIST2;
+            MERGE WORK.FUND_LIST1(IN=IN1) WORK.IRR_SORT(IN=IN2);
+            By FUND_ID INVESTORNAME Q_CUSIP SORT_IRR;
+            if SORT_IRR = 1 
+              then IRRNET = LastValuation;
+            end;  
+            If (IN1 and IN2) then Output;
+            End;
+        RUN;
+        
+        DATA WORK.FUND_LIST3;
+            set WORK.FUND_LIST1(IN=IN1);
+            if SORT_IRR = 0 
+              then Output;
+            end;  
+        RUN;
+        //PROC PRINT DATA =  work.FUND_LIST3;title 'FUND_LIST3  reporting date urrent cost'; RUN;    
+        
+        DATA WORK.FUND_LIST1;    
+            set WORK.FUND_LIST2 WORK.FUND_LIST3;
+        Run;
+        //------------------------------------
+        
+        // addcode here to update LASTVALUATION with reporting date values 
+        DATA WORK.FUND_LIST1_QTR(DROP = ENDDATE REPORT_CURRENTCOST);     //002 changed to work table
+            SET WORK.FUND_LIST1;  
+            COLUMN TOTALVALUE TYPE=FLOAT; 
+            if LASTVALUATION is null
+              then LASTVALUATION = 0;
+            end;   
+        //  COLUMN Report_CURRENTCOST  TYPE=DOUBLE; Report_CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM;
+        //    COLUMN CURRENTCOST TYPE=DOUBLE; CURRENTCOST = REPORT_CURRENTCOST; //set CURRENTCOST to Reporting date REPORT_CURRENTCOST    //003 commented out
+            TOTALVALUE = RETURNOFCAPITAL + LASTVALUATION;                                                                                                                                                                                     
+        RUN;  
+        //PROC PRINT DATA =  FUND_LIST1_QTR;title 'FUND_LIST1_QTR_Output'; RUN;    
+       //%LET NETPATH = Gettemppath() + "\FUND_LIST1.xlsx";
+       //    PROC EXPORTEXCEL FILE=CSTR(%NETPATH) DROP;
+       //    TABLE= WORK.FUND_LIST1 SHEETNAME="FUND_LIST1";
+       //RUN;
+        
+        //002 begin
+        DATA WORK.FUND_LIST1_QTR;
+            MERGE WORK.FUND_LIST1_QTR (IN = OK_L) 
+                  WORK.Curr_BV (IN = OK_R);
+            BY FUND_ID Q_CUSIP;
+            if (OK_L) then Output;
+            end;
+        RUN;
+        
+        DATA FUND_LIST1_QTR;
+            SET WORK.FUND_LIST1_QTR;
+            COLUMN CurrentCost TYPE = DOUBLE;
+            CurrentCost = Report_CurrentCost;
+        RUN;
+        //002 end
+        
+        DATA FUND_LIST1; 
+          SET FUND_LIST1_QTR;  
+        RUN;
+        
+    //PROC PRINT DATA = FUND_LIST1; RUN;
+
+%end;
+/*------------------7. Partnerships New -------------------*/ 
+
+/*------------------7b. Funds - Performance Analytics -----*/
+%if %Code_SW = '0001'
+   %then 
+      //-------------------------- Performance by Vintage
+          DATA work.FUND_LIST1_QTR_7b; 
+             SET FUND_LIST1_QTR;           
+          RUN;
+          // PROC PRINT DATA = work.FUND_LIST1_QTR_7b;title 'FUND_LIST1_QTR_7b Input '; RUN;
+          
+          DATA work.FUND_LIST1_QTR_7b_Sec; // cube used in Sector code
+             SET FUND_LIST1_QTR;           
+          RUN;
+          
+          PROC SORT DATA = work.FUND_LIST1_QTR_7b
+            OUT = work.FUND_LIST1_QTR_7b;
+            BY FUNDNAME;
+          RUN;
+          
+          PROC MEANS DATA = work.FUND_LIST1_QTR_7b(where Sort_IRR = 1 ) OUT=WORK.FUND_LIST1_QTR_7b_MOC;
+            CLASS sectors; 
+            SUM CAPITALINVESTED(NAME=Sum_Of_CapInvst);
+            SUM TOTALVALUE(NAME=Sum_Of_Total_Value);
+          RUN; 
+          //PROC PRINT DATA = work.FUND_LIST1_QTR_7b;title 'FUND_LIST1_QTR_7b_Output New_MOC_TOT'; RUN;
+
+          DATA WORK.FUND_LIST1_QTR_7b_MOC; // Calc MOC 
+             SET WORK.FUND_LIST1_QTR_7b_MOC;
+             COLUMN MOC_TOT TYPE=FLOAT; 
+             IF  Sum_Of_CapInvst is null
+                Then MOC_TOT = 0;
+              Else MOC_TOT = Sum_Of_Total_Value/Sum_Of_CapInvst; 
+             End;               
+          RUN;
+         //PROC PRINT DATA = work.FUND_LIST1_QTR_7b_MOC;title 'FUND_LIST1_QTR_7b_Output New_MOC'; RUN;
+
+          // Calc IRR grouped by vintage
+          PROC MEANS DATA = work.FUND_LIST1_QTR_7b 
+             OUT = work.FUND_LIST1_QTR_7b_IRR;
+             Class vintage; //FUNDNAME 
+             IRR IRRNET (NAME = IRR_NET LABEL = "Net IRR" DATE=OPERATIONDATE);
+          RUN;
+           
+          // Filter records for Sort_IRR = 1 
+          DATA work.FUND_LIST1_QTR_7b(where sort_IRR = 1); 
+             SET work.FUND_LIST1_QTR_7b; 
+          RUN;
+          //  PROC PRINT DATA =  work.FUND_LIST1_QTR_7b;title 'FUND_LIST1_QTR_7b Output ??*******'; RUN;
+        
+          DATA work.FUND_LIST1_QTR_7b_IRR; 
+             SET work.FUND_LIST1_QTR_7b_IRR; 
+             COLUMN IRR_PERCENT TYPE=FLOAT; 
+             IRR_PERCENT = IRR_NET; 
+          RUN;
+          // PROC PRINT DATA =  work.FUND_LIST1_QTR_7b_IRR;title 'FUND_LIST1_QTR_7b_IRR Output ??*******'; RUN;
+       
+          DATA work.FUND_LIST1_QTR_7b;
+             MERGE WORK.FUND_LIST1_QTR_7b(IN=IN1) 
+                   WORK.FUND_LIST1_QTR_7b_IRR(IN=IN2);
+             By Vintage; //FUNDNAME;
+             If (IN1 and IN2) then Output;
+             End;
+          RUN;
+          // PROC PRINT DATA =  work.FUND_LIST1_QTR_7b;title 'FUND_LIST1_QTR_7b Output *******zzz'; RUN;
+      //-------------------------- Performance by Vintage
+      
+      //-------------------------- Performance by Sector
+          PROC SORT DATA = work.FUND_LIST1_QTR_7b_Sec
+            OUT = work.FUND_LIST1_QTR_7b_Sec;
+            BY sectors;
+          RUN;
+    
+          DATA work.FUND_LIST1_QTR_7b_Sec; // Calc MOC 
+             SET work.FUND_LIST1_QTR_7b_Sec; 
+             COLUMN PERF_MOC_TOT TYPE=FLOAT; 
+             IF  CAPITALINVESTED is null
+                Then PERF_MOC_TOT = 0;
+               Else PERF_MOC_TOT = TOTALVALUE/CAPITALINVESTED; 
+             End;               
+          RUN;
+          //PROC PRINT DATA = work.FUND_LIST1_QTR_7b_Sec;title 'FUND_LIST1_QTR_7b_Output MOC_TOT'; RUN;
+          
+          // Calc IRR grouped by sectors
+          PROC MEANS DATA = work.FUND_LIST1_QTR_7b_Sec 
+             OUT = work.FUND_LIST1_QTR_7b_IRR_Pref;
+             Class sectors;    
+             IRR IRRNET (NAME = IRR_NET LABEL = "PERF Net IRR" DATE=OPERATIONDATE);
+          RUN;
+          //  PROC PRINT DATA = work.FUND_LIST1_QTR_7b_IRR_Pref;title 'FUND_LIST1_QTR_7b_IRR_Pref Output'; RUN;
+          //  PROC PRINT DATA = work.FUND_LIST1_QTR_7b_Sec;title 'FUND_LIST1_QTR_7b_Sec Input'; RUN;
+          
+          // Filter records for Sort_IRR = 1 
+          DATA work.FUND_LIST1_QTR_7b_Sec(where sort_IRR = 1); 
+             SET work.FUND_LIST1_QTR_7b_Sec; 
+          RUN;
+          //PROC PRINT DATA =  work.FUND_LIST1_QTR_7b_Sec;title 'FUND_LIST1_QTR_7b_Sec Filtered Out by Sort_IRR = 1 *******'; RUN;
+        
+          DATA work.FUND_LIST1_QTR_7b_IRR_Pref; 
+             SET work.FUND_LIST1_QTR_7b_IRR_Pref; 
+             COLUMN PERF_IRR_PERCENT TYPE=FLOAT; 
+             PERF_IRR_PERCENT = IRR_NET; 
+          RUN;
+       //-------------------------- Performance by Sector
+
+      // Build final Cube Data
+          DATA work.FUND_LIST1_QTR_7b_Sec; // Combine IRR for Sectors
+             MERGE WORK.FUND_LIST1_QTR_7b_Sec(IN=IN1) WORK.FUND_LIST1_QTR_7b_IRR_Pref(IN=IN2);
+             By Sectors;
+             If (IN1 and IN2) then Output;
+             End;
+          RUN;
+      //    PROC PRINT DATA =  work.FUND_LIST1_QTR_7b_sec; title 'FUND_LIST1_QTR_7b_Sec Output 1'; RUN;
+      //    PROC PRINT DATA =  workFUND_LIST1_QTR_7b_MOC; title 'FUND_LIST1_QTR_7b_MOC Output 2'; RUN;
+          
+          DATA work.FUND_LIST1_QTR_7b_Sec; // Combine MOC for Sectors
+             MERGE WORK.FUND_LIST1_QTR_7b_Sec(IN=IN1) WORK.FUND_LIST1_QTR_7b_MOC(IN=IN2);
+             By Sectors;
+             If (IN1 and IN2) then Output;
+             End;
+          RUN;
+          //PROC PRINT DATA =  work.FUND_LIST1_QTR_7b_sec; title 'FUND_LIST1_QTR_7b_Sec Output *******'; RUN;
+    
+          DATA FUND_LIST1_QTR_7b;  // Combine Sectors and Vintage data to final Cube
+             MERGE WORK.FUND_LIST1_QTR_7b(IN=IN1) WORK.FUND_LIST1_QTR_7b_Sec(IN=IN2);
+             By FUNDNAME;
+             If (IN1 and IN2) then Output;
+             End;
+          RUN;
+          // PROC PRINT DATA =  FUND_LIST1_QTR_7b;title 'FUND_LIST1_QTR_7b Output *******'; RUN;
+      // End Build final Cube Data
+   %end;
+/*------------------7b. Funds - Performance Analytics -----*/
+
+/*------------------5. Direct Mezz by Vintage-------------*/ 
+%if %Code_SW = '0001'
+      or %Code_SW = '0002'
+      or %Code_SW = '0003'								  
+      or %Code_SW = '0099'
+      or %Code_SW = '0011'
+   %then 
+       DATA WORK.INVSTINS;
+            SQL "SELECT  MIN(INVINS.ACCOUNTINS) INVINS_ACCOUNTINS
+                        ,SUM(A.AMOUNT2*(-1)) INVESTMENT
+                        ,Cast(DATEPART(YYYY,MIN(A.CLOSEDATE))  as varchar(4)) INV_YEAR
+                        ,MIN(VCPRT.PORTFOLIO) as PORTFOLIO
+                        ,MIN (A.CURRENCY6) INST_CURR, MIN(SFA.NAME) AS SPONSOR
+                        ,(case  when MIN(SFASTAT.DESCR) like 'Exited Portfolio Co.%' 
+                           then '0' else '1' 
+                         end ) as 'CMPACTIVESTATUS'
+                        ,(case  when MIN(SFASTAT.DESCR) like 'Exited Portfolio Co.%' 
+                           then 'Exited' else 'Active' 
+                         end ) as 'CMPSTATUS_DashBrd'
+                        ,MIN(INVINS.USERTEXT46) INSTR_STATUS        --- DD 2018_02_28 added new field base on Ticket ITM0251960
+                        ,MIN(SFA_CMP.NAME) COMPANY
+                        ,MIN(SFA_CMP.CREATIONDATE) CREATIONDATE 
+                        ,CASE WHEN CONVERT(VARCHAR(12),MIN(LSTRATE.BASERATE)/100 ) IS NOT NULL 
+                            THEN Convert(VARCHAR(12),CAST(MIN(LSTRATE.BASERATE) AS decimal(10,2))) + '%'                   
+                          ELSE  MIN(LSTRATE.LIBELLE) + ' + ' + Convert(VARCHAR(12),CAST(MIN(LSTRATE.RATE) AS decimal(10,2))) + '%'  
+                         END             AS CASH     --CONVERT( VARCHAR(12),MIN(LSTRATE.Rate)) + '%' 
+                        ,(CONVERT(VARCHAR(12),MIN(LSTRATEPIK.BASERATE)) + '%') PIK
+                        ,MIN(VCR.LASTINTERESTDATE) MATURITY_DATE
+                        ,CASE MIN(VCP.USERTEXT30)
+                            WHEN '1' THEN 'Voting Member'
+                            WHEN '2' THEN 'Non-Voting Member'
+                            WHEN '3' THEN 'Observation Rights'
+                            WHEN '4' THEN 'None'
+                         END AS BOARD_RIGHTS
+                        ,MIN(INVINS.CURRENCY1) CURRENCY
+                        ,(case 
+                            when MIN(INVINS.USERTEXT41) = '1' then 'Debt Hedge Fund' 
+                            when MIN(INVINS.USERTEXT41) = '2' then 'Alternatives Preferred Stock' 
+                            when MIN(INVINS.USERTEXT41) = '3' then 'Senior Secured Loan' 
+                            when MIN(INVINS.USERTEXT41) = '4' then 'Subordinated Loan' 
+                            when MIN(INVINS.USERTEXT41) = '5' then 'Distressed Debt' 
+                            when MIN(INVINS.USERTEXT41) = '6' then 'Real Asset Debt' 
+                            when MIN(INVINS.USERTEXT41) = '7' then 'Senior Secured Loan' 
+                            when MIN(INVINS.USERTEXT41) = '8' then 'Subordinated Loan/Mezzanine Funds' 
+                            when MIN(INVINS.USERTEXT41) = '9' then 'Senior Secured Loan' 
+                            when MIN(INVINS.USERTEXT41) = '10' then 'Subordinated Loan' 
+                            when MIN(INVINS.USERTEXT41) = '11' then 'Senior Secured Loan' 
+                            when MIN(INVINS.USERTEXT41) = '12' then 'Subordinated Loan' 
+                            when MIN(INVINS.USERTEXT41) = '13' then 'Equity Hedge Fund' 
+                            when MIN(INVINS.USERTEXT41) = '14' then 'Alternatives Common Stock' 
+                            when MIN(INVINS.USERTEXT41) = '15' then 'Alternatives Preferred Stock' 
+                            when MIN(INVINS.USERTEXT41) = '16' then 'Warrants' 
+                            when MIN(INVINS.USERTEXT41) = '17' then 'Buyout' 
+                            when MIN(INVINS.USERTEXT41) = '18' then 'Growth' 
+                            when MIN(INVINS.USERTEXT41) = '19' then 'Real Asset Equity' 
+                            when MIN(INVINS.USERTEXT41) = '20' then 'Secondary' 
+                            when MIN(INVINS.USERTEXT41) = '21' then 'Venture Capital' 
+                            when MIN(INVINS.USERTEXT41) = '22' then 'Structured Alternatives Common Stock' 
+                            when MIN(INVINS.USERTEXT41) = '23' then 'Structured Alternatives Preferred Stock' 
+                            when MIN(INVINS.USERTEXT41) = '24' then 'Senior Loan' 
+                            when MIN(INVINS.USERTEXT41) = '25' then 'Subordinated Loan' 
+                         end) as Security
+                        ,MIN(NAIC.METATEXT1) NAIC_RATING
+                        ,MIN(EGAN.METATEXT1) EGAN_RATING 
+                        ,MIN(ltrim(rtrim(INVINS.usertext23))) Cusip
+                        ,MIN(vcp.Account)   __vcp_account
+                        ,MIN(VCINV.IQID)    __VCINV_IQID
+                        ,MIN(A.INVESTMENTINS) __A_INVESTMENTINS
+                        ,MIN(OPT.CODE)        __OPT_Code
+                   FROM VCINVESTMENTINS INVINS 
+                      /*LEFT JOIN VCINVESTMENTINS INVINS_MAIN 
+                          ON INVINS_MAIN.IQID=INVINS.ACCOUNTINS*/     --- DD 2018_02_28 added new field base on Ticket ITM0251960
+                      JOIN VCINVESTMENT VCINV 
+                          ON VCINV.IQID = INVINS.INVESTMENT 
+                            AND VCINV.IQDELETED=0    
+                      LEFT JOIN (SELECT  ACCOUNT, MAX(USERTEXT7) USERTEXT7, MAX(USERDATE5) USERDATE5, MAX(USERTEXT30) USERTEXT30 
+                                   FROM VCPROJECT VCP1 
+                                   WHERE VCP1.IQDELETED=0 
+                                       AND VCP1.WORKFLOW in (SELECT IQID 
+                                                              FROM ADMWORKFLOW 
+                                                              WHERE LIBELLE IN ('RGA Direct Mezzanine')
+                                                                and IQDELETED=0
+                                                              --  and CHANGESTATUSDATE <=  " & DML(%DATE) & " 
+                                                            )  
+                                   GROUP BY ACCOUNT                  
+                                ) VCP ON VCP.ACCOUNT = VCINV.ACCOUNT 
+                                
+                      LEFT JOIN (SELECT DISTINCT
+                                    VCR.INVESTMENTINS
+                                    , VCR.LASTINTERESTDATE
+                                    , RANK() OVER (PARTITION BY VCR.INVESTMENTINS 
+                                        ORDER BY VCR.LASTINTERESTDATE DESC) AS RESULT
+                                  FROM VCINVESTINSRATE VCR
+                                 ) VCR
+                        ON VCR.INVESTMENTINS = INVINS.ACCOUNTINS 
+                            AND RESULT = 1   
+                      LEFT JOIN SFAACCOUNT SFA 
+                        ON SFA.IQID = VCP.USERTEXT7  
+                          AND SFA.IQDELETED=0
+                      LEFT JOIN SFAACCOUNT SFA_CMP 
+                        ON SFA_CMP.IQID = VCINV.ACCOUNT   
+                          AND SFA_CMP.IQDELETED=0                                                                                                                                                                                  
+                      LEFT JOIN SFAACCTSTAT SFASTAT 
+                        ON SFA_CMP.STATUS = SFASTAT.CODE 
+                          AND SFASTAT.FILTER NOT LIKE '000000%'    
+                      LEFT JOIN (SELECT 
+                                      RATE.INVESTMENTINS
+                                    , RATE.LASTDATE
+                                    , RATE.BASERATE
+                                    , RATE.RATE
+                                    , BNMK.LIBELLE
+                                    , RANK() OVER (PARTITION BY RATE.INVESTMENTINS 
+                                        ORDER BY RATE.LASTDATE DESC) AS RESULT
+                                FROM VCINVESTINSRATE RATE
+                                LEFT JOIN VCBENCHMARK BNMK 
+                                     ON BNMK.IQID=RATE.RATESTABLE  
+                                WHERE RATE.KIND = (SELECT CODE FROM VCINVINSRATKIND WHERE DESCR IN ('Loan Cash Interests'))
+                                ) LSTRATE 
+                        ON LSTRATE.INVESTMENTINS =  INVINS.ACCOUNTINS 
+                            AND LSTRATE.RESULT = 1  
+                      LEFT JOIN (SELECT 
+                                      RATEPIK.INVESTMENTINS
+                                    , RATEPIK.LASTDATE
+                                    , RATEPIK.BASERATE
+                                    , RANK() OVER (PARTITION BY RATEPIK.INVESTMENTINS 
+                                        ORDER BY RATEPIK.LASTDATE DESC) AS RESULT
+                                FROM VCINVESTINSRATE RATEPIK
+                                WHERE RATEPIK.KIND = (SELECT CODE FROM VCINVINSRATKIND WHERE DESCR IN ('Loan Capitalized Interests'))
+                                ) LSTRATEPIK
+                        ON LSTRATEPIK.INVESTMENTINS =  INVINS.ACCOUNTINS 
+                          AND LSTRATEPIK.RESULT = 1                          
+                      JOIN VCPORTFOLIOASSET VCPRTAST 
+                        ON VCPRTAST.INVESTMENT = VCINV.IQID 
+                          AND  VCPRTAST.IQDELETED=0   
+                      JOIN VCPORTFOLIO VCPRT 
+                        ON VCPRT.IQID = VCPRTAST.PORTFOLIO 
+                          AND VCPRT.PORTFOLIO IN ('PDE - Direct Mezzanine')  
+                          AND  VCPRT.IQDELETED=0  
+                      JOIN VCINVESTMENTOP A  
+                        ON A.INVESTMENTINS=INVINS.IQID 
+                      JOIN VCINVESTOPTYPE OPT 
+                        ON OPT.CODE = A.TYPEINVESTOP 
+                          AND (OPT.CODE = 'LN03'      -- 'LN - Funding (w/o commitment)' 
+                                or OPT.CODE = 'LN02'  -- 'LN - Funding (following commitment)'
+                                or OPT.CODE = 'LN70'  -- 'LN - Transfer in'
+                                or OPT.CODE = 'LN71'  -- 'LN - Transfer out'
+                                or OPT.CODE = 'LN81'  -- 'LN - Conversion in 
+                                or OPT.CODE = 'LN82'  -- 'LN - Conversion out
+                                --or OPT.CODE = 'LN06'  -- 'Underwriting Fees:'    --001 commented out 
+                              ) 
+                      JOIN ADMROLE REG 
+                        ON VCINV.IQREGIONID = REG.IQID 
+                          AND REG.IQDELETED=0 
+                          AND A.IQREGIONID = REG.IQID 
+                          AND REG.NAME IN ('Private Debt & Equity')              
+                      LEFT JOIN 
+                           (SELECT 
+                                EGAN.INVESTMENTINS
+                                , EGAN.METATEXT1
+                                , EGAN.METADATE2
+                                , RANK() OVER (PARTITION BY EGAN.INVESTMENTINS 
+                                    ORDER BY EGAN.METADATE2 DESC) AS RESULT
+                            FROM AJXDYNTABLE EGAN
+                            WHERE EGAN.IQDELETED = 0
+                                AND EGAN.METATEXT2 = '2'
+                                AND EGAN.INVESTMENTINS IS NOT NULL) NAIC      
+                        ON NAIC.INVESTMENTINS=INVINS.ACCOUNTINS 
+                          AND NAIC.RESULT = 1        
+                      LEFT JOIN 
+                          (SELECT 
+                                EGAN.INVESTMENTINS
+                                , EGAN.METATEXT1
+                                , EGAN.METADATE2
+                                , RANK() OVER (PARTITION BY EGAN.INVESTMENTINS 
+                                    ORDER BY EGAN.METADATE2 DESC) AS RESULT
+                            FROM AJXDYNTABLE EGAN
+                            WHERE EGAN.IQDELETED = 0
+                                AND EGAN.METATEXT2 = '4'
+                                AND EGAN.INVESTMENTINS IS NOT NULL) EGAN      
+                        ON EGAN.INVESTMENTINS=INVINS.ACCOUNTINS 
+                          AND EGAN.RESULT = 1
+                   WHERE  INVINS.IQDELETED=0 
+                     AND A.IQDELETED=0 
+                     AND A.CLOSEDATE <=  " & DML(%DATE) & " 
+                     AND ??FILTER
+                   GROUP BY  INVINS.ACCOUNTINS " ;
+        COLUMN SECURITY_ID;     
+        RUN;
+       // PROC PRINT DATA =  WORK.INVSTINS;title 'Work.INVSTINS'; RUN; 
+        
+        //BLR 2021_04_13 - To fix the ratings issue so the only show label and not the code in the Look Up of the AJXDYNTABLE
+        DATA WORK.INVSTINS;
+            SET WORK.INVSTINS;
+            
+            //EGAN_RATING
+            IF EGAN_RATING IS NULL THEN EGAN_RATING = 'NR';
+            ELSE EGAN_RATING = LOOKUPDYN("Ratings","METATEXT1", EGAN_RATING);
+            END;
+            
+            //NAIC_RATING
+            IF NAIC_RATING IS NULL THEN NAIC_RATING = 'NR';
+                //check if getting the old numeric ratings 1 through 6 and then redefine to new numbering scheme so LOOKUPDYN() will translate this right.
+                IF NAIC_RATING = '1' THEN NAIC_RATING = '45';
+                ELSEIF NAIC_RATING = '2' THEN NAIC_RATING = '46';
+                ELSEIF NAIC_RATING = '3' THEN NAIC_RATING = '47';
+                ELSEIF NAIC_RATING = '4' THEN NAIC_RATING = '48';
+                ELSEIF NAIC_RATING = '5' THEN NAIC_RATING = '49';
+                ELSEIF NAIC_RATING = '6' THEN NAIC_RATING = '50';
+                END;
+            ELSE NAIC_RATING = LOOKUPDYN("Ratings","METATEXT1", NAIC_RATING);
+            END;
+        RUN;
+        
+        //DATA WORK.INSTRPOS_LN (KEEP = POSITION_DATE COMPANY_NAME SECURITY_NAME EXIT CURRENTCOST PRINCIPAL LASTVALUATION SECURITY_ID );
+        %Let COLUMN_EXIT = "EXIT";
+        DATA WORK.INSTRPOS_LN (KEEP = POSITION_DATE COMPANY_NAME SECURITY_NAME EXIT CURRENTCOST BALANCE LASTVALUATION SECURITY_ID REALIZEDCOST INTERNALTRANS REIMBURSEMENT ALLOTHERINCOME);
+          SET DCE.REFINSTRUMENTPOSITIONS (WHERE POSITION_DATE = %DATE 
+                                            AND SECURITY_CLASS_NAME = "LOANS" 
+                                            AND LENGTH(COMPANY_NAME) > 0 );
+          @COLUMN_EXIT = Nz(@COLUMN_EXIT,0) + Nz(INTERNALTRANS,0);
+        RUN;
+        //PROC PRINT DATA = WORK.INSTRPOS_LN;title 'INSTRPOS_LN'; RUN;                                                                                                                                                                                              
+        
+        //DATA WORK.DIRLOAN_LIST(RENAME = (SECURITY_ID=SECURITY_COMPANY_ID POSITION_DATE=REFERENCE_DATE));
+        DATA WORK.DIRLOAN_LIST(RENAME = (SECURITY_ID=SECURITY_COMPANY_ID POSITION_DATE=REFERENCE_DATE BALANCE=PRINCIPAL));
+          MERGE WORK.INVSTINS(IN=IN1) WORK.INSTRPOS_LN(IN=IN2);
+           BY SECURITY_ID;
+           If (IN1 and IN2) then Output;
+           End;
+        RUN; 
+        //PROC PRINT DATA = WORK.DIRLOAN_LIST;Title 'merge DIRLOAN_LIST '; RUN;                                                                                                                                                                                              
+        
+        //LN05, LN06 and EQ07 - Exclude Origination fees amortization transactions 
+        // Fields  SECURITY_COMPANY_ID REFERENCE_DATE SECURITY_NAME COMPANY_NAME IRRNET 
+        PROC MEANS DATA = DCE.FV_T_PORTCO_TRANSACTIONS(WHERE REFERENCE_DATE<=%DATE 
+                                                          AND TRANSACTION_TYPE<>'LN05' 
+                                                          AND TRANSACTION_TYPE<>'LN07' 
+                                                          AND TRANSACTION_TYPE<>'EQ06') 
+          OUT = WORK.TIRR;
+          CLASS SECURITY_COMPANY_ID REFERENCE_DATE; 
+          VAR  SECURITY_NAME; 
+          VAR  COMPANY_NAME TRANSACTION_TYPE;     
+          SUM CASH2(NAME=IRRNET);
+        RUN;                                                                                                                                                                                             
+        //PROC PRINT DATA= WORK.TIRR;title 'DCE.FV_T_PORTCO_TRANSACTIONS'; RUN;
+                                                                                                                                                                                                   
+        PROC MEANS DATA =  WORK.DIRLOAN_LIST OUT=WORK.TVALUATION;
+          CLASS SECURITY_COMPANY_ID REFERENCE_DATE; 
+          VAR  SECURITY_NAME;  
+          VAR  COMPANY_NAME;     
+          SUM LASTVALUATION(NAME=IRRNET);
+        RUN; 
+        //PROC PRINT DATA = WORK.TVALUATION;Title 'TVALUATION '; RUN;                                                                                                                                                                                              
+        //PROC PRINT DATA = WORK.DIRLOAN_LIST;Title 'DIRLOAN_LIST '; RUN;                                                                                                                                                                                              
+        
+        DATA WORK.TIRR;
+          SET  WORK.TIRR(IN=T1) WORK.TVALUATION; 
+          IF IRRNET IS NULL 
+            THEN IRRNET=0; 
+          END; 
+          COLUMN SORT_IRR TYPE=INTEGER; 
+          IF T1 
+            THEN SORT_IRR=0;  
+           ELSE SORT_IRR=1; 
+                REFERENCE_DATE = %DATE;
+          END; 
+          _OUTPUT_=IRRNET <> 0 OR SORT_IRR=1;
+        RUN; 
+        
+        PROC SORT DATA = WORK.TIRR; 
+          BY SECURITY_COMPANY_ID SECURITY_NAME COMPANY_NAME SORT_IRR REFERENCE_DATE; 
+        RUN; 
+        
+        //---------------------------
+        DATA WORK.DIRLOAN_LIST; 
+          SET WORK.DIRLOAN_LIST;  
+          COLUMN CalcProceedsValue TYPE=FLOAT; 
+          COLUMN V_EXIT TYPE=FLOAT; 
+          If INTERNALTRANS <> 0
+             THEN V_EXIT = REIMBURSEMENT + ALLOTHERINCOME;
+            ELSE 
+              V_EXIT = EXIT; 
+          End; 
+        RUN;  
+        //---------------------------
+        //PROC PRINT DATA= WORK.DIRLOAN_LIST;title 'DIRLOAN_LIST********'; RUN;
+        
+        DATA DIRLOAN_LIST1;
+          MERGE WORK.DIRLOAN_LIST(IN=IN1) WORK.TIRR(IN=IN2);
+          By SECURITY_COMPANY_ID;
+          If (IN1 and IN2) then Output;
+          End;
+        RUN;
+        //PROC PRINT DATA= WORK.DIRLOAN_LIST1;title 'DIRLOAN_LIST1'; RUN;
+                                                                                                                                                                                            
+        DATA DIRLOAN_LIST1_QTR; 
+          SET DIRLOAN_LIST1;  
+          COLUMN TOTALVALUE TYPE = FLOAT; 
+             If INTERNALTRANS <> 0
+                Then TOTALVALUE = V_EXIT + LASTVALUATION; 
+              Else  
+                TOTALVALUE = EXIT + LASTVALUATION;
+             End;   
+        RUN;    
+        DATA DIRLOAN_LIST1; 
+          SET DIRLOAN_LIST1_QTR;  
+        RUN; 
+     //PROC PRINT DATA = DIRLOAN_LIST1_QTR;title 'DIRLOAN_LIST1_QTR'; RUN;
+    
+        DATA Work.DIRLOAN_LIST1; 
+          SET DIRLOAN_LIST1_QTR;  
+        RUN; 
+    //PROC PRINT DATA = DIRLOAN_LIST1;title 'DIRLOAN_LIST1'; RUN;
+
+%end;
+/*------------------5. Direct Mezz by Vintage-------------*/ 
+
+/*------------------6. Direct LLC Corps-----------*/    
+%if %Code_SW = '0001'
+      or %Code_SW = '0003'						  								  
+      or %Code_SW = '0099'
+      or %Code_SW = '0011'
+   %then 
+        DATA WORK.INVSTINS_EQ;
+            SQL "SELECT MIN(INVINS.ACCOUNTINS)    INVINS_ACCOUNTINS 
+                      , SUM( (CASE WHEN OPT.code = 'EQ03' -- 'EQ - Purchase/Subscription (w/o Commitment)%'
+                                     or OPT.code = 'EQ42' -- 'EQ - Reinvestment of cash Dividend into Shares
+                                     or OPT.code = 'EQ02' -- 'EQ - Subscription (Capital Issue with Commitment)
+                                     or OPT.code = 'EQ81' -- 'EQ - Conversion In
+                                     or OPT.code = 'EQ82' -- 'EQ - Conversion Out                                      
+                                THEN A.AMOUNT2 
+                               ELSE 0 
+                              END 
+                             )*(-1))                     INVESTMENT     
+                      , Cast(DATEPART(YYYY,MIN(A.CLOSEDATE)) as varchar(4)) INV_YEAR
+                      , MIN(VCPRT.PORTFOLIO)         as PORTFOLIO
+                      , MIN (A.CURRENCY6)               INST_CURR
+                      , MIN(SFA.NAME)                AS SPONSOR
+                      , case  
+                             when MIN(SFASTAT.DESCR) like 'Exited Portfolio Co.%' 
+                               then '0' 
+                          else '1' 
+                        end                  as CMPACTIVESTATUS
+                      , case when MIN(SFASTAT.DESCR) like 'Exited Portfolio Co.%' 
+                               then 'Exited' 
+                          else 'Active' 
+                        end                  as CMPSTATUS_DashBrd
+                      , MIN(INVINS.USERTEXT46)               INSTR_STATUS        --- DD 2018_02_28 added new field base on Ticket ITM0251960
+                      , MIN(SFA_CMP.NAME)                    COMPANY
+                      , MIN(SFA_CMP.CREATIONDATE)            CREATIONDATE 
+                      , MIN(ltrim(rtrim(INVINS.LIBELLE)))    FUND
+                      , MIN(ltrim(rtrim(INVINS.usertext23))) Cusip
+                      , case 
+                          when MIN(INVINS.USERTEXT21) = 1 then 'Fund' 
+                          when MIN(INVINS.USERTEXT21) = 2 then 'Company' 
+                        end                           as LP_TYPE
+                      , CASE MIN(VCP.USERTEXT30)
+                          WHEN '1' THEN 'Voting Member'
+                          WHEN '2' THEN 'Non-Voting Member'
+                          WHEN '3' THEN 'Observation Rights'
+                          WHEN '4' THEN 'None'
+                        END   AS BOARD_RIGHTS
+                      , MIN(INVINS.CURRENCY1) CURRENCY
+                      , case 
+                            when MIN(INVINS.USERTEXT41) = '1' then 'Debt Hedge Fund' 
+                            when MIN(INVINS.USERTEXT41) = '2' then 'Alternatives Preferred Stock' 
+                            when MIN(INVINS.USERTEXT41) = '3' then 'Senior Secured Loan' 
+                            when MIN(INVINS.USERTEXT41) = '4' then 'Subordinated Loan' 
+                            when MIN(INVINS.USERTEXT41) = '5' then 'Distressed Debt' 
+                            when MIN(INVINS.USERTEXT41) = '6' then 'Real Asset Debt' 
+                            when MIN(INVINS.USERTEXT41) = '7' then 'Senior Secured Loan' 
+                            when MIN(INVINS.USERTEXT41) = '8' then 'Subordinated Loan/Mezzanine Funds' 
+                            when MIN(INVINS.USERTEXT41) = '9' then 'Senior Secured Loan' 
+                            when MIN(INVINS.USERTEXT41) = '10' then 'Subordinated Loan' 
+                            when MIN(INVINS.USERTEXT41) = '11' then 'Senior Secured Loan' 
+                            when MIN(INVINS.USERTEXT41) = '12' then 'Subordinated Loan' 
+                            when MIN(INVINS.USERTEXT41) = '13' then 'Equity Hedge Fund' 
+                            when MIN(INVINS.USERTEXT41) = '14' then 'Alternatives Common Stock' 
+                            when MIN(INVINS.USERTEXT41) = '15' then 'Alternatives Preferred Stock' 
+                            when MIN(INVINS.USERTEXT41) = '16' then 'Warrants' 
+                            when MIN(INVINS.USERTEXT41) = '17' then 'Buyout' 
+                            when MIN(INVINS.USERTEXT41) = '18' then 'Growth' 
+                            when MIN(INVINS.USERTEXT41) = '19' then 'Real Asset Equity' 
+                            when MIN(INVINS.USERTEXT41) = '20' then 'Secondary' 
+                            when MIN(INVINS.USERTEXT41) = '21' then 'Venture Capital' 
+                            when MIN(INVINS.USERTEXT41) = '22' then 'Structured Alternatives Common Stock' 
+                            when MIN(INVINS.USERTEXT41) = '23' then 'Structured Alternatives Preferred Stock' 
+                            when MIN(INVINS.USERTEXT41) = '24' then 'Senior Loan' 
+                            when MIN(INVINS.USERTEXT41) = '25' then 'Subordinated Loan' 
+                        end               as Security
+                      , min(VCINV.ACCOUNT) __Account 
+                      , min(VCP.USERTEXT7) __USERTEXT7 
+                      , min(OPT.code)     __OPT_code
+            FROM VCINVESTMENTINS INVINS 
+                JOIN VCINVESTMENT VCINV ON VCINV.IQID = INVINS.INVESTMENT AND VCINV.IQDELETED=0 
+                  LEFT JOIN (SELECT  ACCOUNT, MAX(USERTEXT7) USERTEXT7, MAX(USERDATE5) USERDATE5, MAX(USERTEXT30) USERTEXT30 
+                               FROM VCPROJECT VCP1 
+                               WHERE VCP1.IQDELETED=0 
+                                 AND VCP1.WORKFLOW in (SELECT  IQID 
+                                                         FROM ADMWORKFLOW 
+                                                         WHERE LIBELLE IN ('RGA Direct Mezzanine','RGA Equity Co-Investment')
+                                                           and IQDELETED=0
+                                                      )  
+                               GROUP BY ACCOUNT                  
+                            ) VCP 
+                    ON VCP.ACCOUNT = VCINV.ACCOUNT
+                LEFT JOIN SFAACCOUNT SFA 
+                  ON SFA.IQID = VCP.USERTEXT7 
+                    AND SFA.IQDELETED=0  
+                LEFT JOIN SFAACCOUNT SFA_CMP 
+                  ON SFA_CMP.IQID = VCINV.ACCOUNT  
+                    AND SFA_CMP.IQDELETED=0                                                                                                                                                                                            
+                LEFT JOIN SFAACCTSTAT SFASTAT 
+                  ON SFA_CMP.STATUS = SFASTAT.CODE 
+                    AND  SFASTAT.FILTER NOT LIKE '000%'                                                                                                                                                                                                    
+                JOIN VCPORTFOLIOASSET VCPRTAST 
+                  ON VCPRTAST.INVESTMENT = VCINV.IQID  
+                    AND  VCPRTAST.IQDELETED=0  
+                JOIN VCPORTFOLIO VCPRT 
+                  ON VCPRT.IQID = VCPRTAST.PORTFOLIO 
+                    AND VCPRT.PORTFOLIO IN ('PDE - Direct Equity') 
+                    AND  VCPRT.IQDELETED=0  
+                LEFT JOIN VCINVESTMENTOP A  
+                  ON A.INVESTMENTINS=INVINS.IQID 
+                LEFT JOIN VCINVESTOPTYPE OPT 
+                  ON OPT.CODE = A.TYPEINVESTOP 
+                    --AND OPT.DESCR like 'EQ - Purchase/Subscription (w/o Commitment)%' 
+                    and (OPT.code = 'EQ03'     -- 'EQ - Purchase/Subscription (w/o Commitment)%'
+                          or OPT.code = 'EQ42' -- 'EQ - Reinvestment of cash Dividend into Shares
+                          or OPT.code = 'EQ02' -- 'EQ - Subscription (Capital Issue with Commitment)
+                          or OPT.code = 'EQ81' -- 'EQ - Conversion In
+                          or OPT.code = 'EQ82' -- 'EQ - Conversion Out
+                          or OPT.code = 'EQ05' -- 'EQ - Underwriting Fees              
+                        )
+                    AND OPT.FILTER NOT LIKE '000000%'
+                
+                JOIN ADMROLE REG 
+                  ON VCINV.IQREGIONID = REG.IQID 
+                    AND REG.IQDELETED=0 
+                    AND A.IQREGIONID = REG.IQID 
+                    AND REG.NAME IN ('Private Debt & Equity')
+                
+                JOIN VCINVESTINSTYPE INVTYP 
+                  ON INVTYP.IQID = INVINS.INVESTINSTYPE 
+                    AND INVTYP.IQDELETED=0
+                    AND INVTYP.DESCR NOT LIKE 'Loan%'
+            WHERE INVINS.IQDELETED=0 
+              AND A.IQDELETED=0 
+              AND A.CLOSEDATE <=  " & DML(%DATE) & " 
+              AND ??FILTER
+            --  and OPT.code = 'EQ02'
+           GROUP BY  INVINS.ACCOUNTINS   
+           ORDER BY 9     
+        " ;    
+        COLUMN SECURITY_ID;     
+        RUN;
+       // PROC PRINT DATA =  WORK.INVSTINS_EQ;title 'INVSTINS_EQ'; RUN;  
+                                                                                                                                                                                                            
+        // BGT 2018-07-13: Upgrade issue, EXIT column from calc engine doesn't include INTERNALTRANS anymore
+        DATA WORK.INSTRPOS_EQ (KEEP = POSITION_DATE COMPANY_NAME SECURITY_NAME EXIT CURRENTCOST LASTVALUATION SECURITY_ID );
+        SET DCE.REFINSTRUMENTPOSITIONS (WHERE POSITION_DATE=%DATE 
+                                           AND SECURITY_CLASS_NAME <>"LOANS" 
+                                           AND LENGTH(COMPANY_NAME)>0 );
+        //@COLUMN_EXIT = Nz(@COLUMN_EXIT,0) + Nz(INTERNALTRANS,0);
+        RUN;
+        //PROC PRINT DATA = DCE.REFINSTRUMENTPOSITIONS; RUN;
+        
+        DATA WORK.DIREQUITY_LIST(RENAME = (SECURITY_ID=SECURITY_COMPANY_ID POSITION_DATE=REFERENCE_DATE));
+            MERGE WORK.INVSTINS_EQ(IN=IN1) WORK.INSTRPOS_EQ(IN=IN2);
+            BY SECURITY_ID;
+            If (IN1 and IN2) then Output;
+            End;
+        RUN; 
+        //PROC PRINT DATA =  WORK.DIREQUITY_LIST;title 'DIREQUITY_LIST'; RUN;  
+        //PROC PRINT DATA =  WORK.INVSTINS_EQ;title 'INVSTINS_EQ checking for EQ05'; RUN;  
+
+        PROC FAQUERY Query="IT Admin - Program Queries\Positions-PortRev" (DATE=%DATE) ; 
+            TABLE "Default"  OUT=WORK.QRY_POSITIONS_PORTREV;
+        RUN;
+        //PROC PRINT DATA=WORK.QRY_POSITIONS_PORTREV; RUN;
+        
+        DATA WORK.QRY_POSITIONS_PORTREV(DROP = LASTVALUATION);
+            SET WORK.QRY_POSITIONS_PORTREV;
+            COLUMN CUSIP TYPE=STRING; 
+            CUSIP = ltrim(rtrim(Q_CUSIP)) ; 
+        RUN;
+        
+        DATA WORK.DIREQUITY_LIST;
+            MERGE WORK.DIREQUITY_LIST(IN=IN1) WORK.QRY_POSITIONS_PORTREV;
+            BY CUSIP  ;
+            If (IN1) then Output;
+            End;
+        RUN; 
+        //PROC PRINT DATA =  WORK.DIREQUITY_LIST;title 'DIREQUITY_LIST'; RUN;  
+        
+        DATA WORK.DIREQUITY_LIST(DROP=FUND_ID FUND INVESTORNAME GAAP_BOOK_VALUE GL_COST_ELIM );
+          SET WORK.DIREQUITY_LIST;
+          // COLUMN CURRENTCOST  TYPE=DOUBLE;  
+          IF LP_TYPE = 'Fund' 
+            THEN CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM; 
+          END;
+        RUN;
+        //PROC PRINT DATA=WORK.DIREQUITY_LIST; RUN;
+        
+        PROC MEANS DATA =DCE.FV_T_PORTCO_TRANSACTIONS(WHERE REFERENCE_DATE <= %DATE 
+                                                        AND TRANSACTION_TYPE<>'LN05' 
+                                                        AND TRANSACTION_TYPE<>'LN07' 
+                                                        AND TRANSACTION_TYPE<>'EQ06'
+                                                     ) OUT=WORK.TIRR_EQ;
+            CLASS SECURITY_COMPANY_ID REFERENCE_DATE; 
+            VAR  SECURITY_NAME; 
+            VAR  COMPANY_NAME;     
+            SUM CASH2(NAME=IRRNET);
+        RUN; 
+        
+        PROC MEANS DATA =  WORK.DIREQUITY_LIST 
+            OUT=WORK.TVALUATION_EQ;
+            CLASS SECURITY_COMPANY_ID REFERENCE_DATE; 
+            VAR  SECURITY_NAME;  
+            VAR  COMPANY_NAME;     
+            SUM LASTVALUATION(NAME=IRRNET);
+        RUN; 
+        //PROC PRINT DATA =  WORK.TVALUATION_EQ;title 'TVALUATION_EQ'; RUN;  
+        
+        DATA WORK.TIRR_EQ;
+            SET WORK.TIRR_EQ(IN=T1) 
+                WORK.TVALUATION_EQ; 
+            IF IRRNET IS NULL THEN IRRNET=0; END; 
+            COLUMN SORT_IRR TYPE=INTEGER; 
+            IF T1 
+              THEN SORT_IRR=0;  
+             ELSE SORT_IRR=1; 
+               REFERENCE_DATE = %DATE;
+            END; 
+            _OUTPUT_=IRRNET <>0 OR SORT_IRR=1;
+        RUN; 
+        //PROC PRINT DATA =  WORK.TIRR_EQ;title 'TIRR_EQ'; RUN;  
+        
+        PROC SORT DATA = WORK.TIRR_EQ; 
+        BY SECURITY_COMPANY_ID SECURITY_NAME COMPANY_NAME SORT_IRR REFERENCE_DATE; 
+        RUN; 
+        
+        DATA WORK.DIREQUITY_LIST1;
+            MERGE WORK.DIREQUITY_LIST(IN=IN1) WORK.TIRR_EQ(IN=IN2);
+            By SECURITY_COMPANY_ID;
+            If (IN1 and IN2) then Output;
+            End;
+        RUN;
+        //PROC PRINT DATA =  WORK.DIREQUITY_LIST;title 'DIREQUITY_LIST test for EQ05'; RUN;  
+                                                                                                                                                                                            
+        DATA DIREQUITY_LIST1_QTR; 
+            SET WORK.DIREQUITY_LIST1;  
+            COLUMN TOTALVALUE TYPE=FLOAT; 
+            TOTALVALUE= EXIT + LASTVALUATION;                                                                                                                                                                                     
+        RUN;         
+        //PROC PRINT DATA =  DIREQUITY_LIST1_QTR;title 'DIREQUITY_LIST1_QTR'; RUN;  
+    
+        DATA DIREQUITY_LIST1; 
+            SET DIREQUITY_LIST1_QTR;  
+        RUN;
+        //PROC PRINT DATA = WORK.DIREQUITY_LIST1; RUN; 
+        //PROC PRINT DATA = DIREQUITY_LIST1; RUN;  
+%end;
+/*------------------6. Direct LLC Corps-----------*/ 
+
+/*------------------4. Direct Mezz + Equity --------------*/  
+%if %Code_SW = '0099'
+    or %Code_SW = '0003'
+    or %Code_SW = '0011'
+   %then 
+        DATA WORK.INVSTINS_LNEQ;
+        SQL "SELECT 
+                 MIN(INVINS.ACCOUNTINS) INVINS_ACCOUNTINS     
+               , SUM( (CASE 
+                         WHEN (OPT.CODE = 'LN03'      -- 'LN - Funding (w/o commitment)' 
+                                  or OPT.CODE = 'LN02'  -- 'LN - Funding (following commitment)'
+                                  or OPT.CODE = 'EQ03'  -- 'EQ - Purchase/Subscription (w/o Commitment)'
+                                  or OPT.CODE = 'LN70'  -- 'LN - Transfer in'
+                                  or OPT.CODE = 'LN71'  -- 'LN - Transfer out'
+                                  or OPT.CODE = 'LN81'  -- 'LN - Conversion in 
+                                  or OPT.CODE = 'LN82'  -- 'LN - Conversion out
+                              )  
+                           THEN  A.AMOUNT2 
+                         ELSE 0 
+                       END
+                      ) *(-1)
+                    ) INVESTMENT     
+               , cast(DATEPART(YYYY,MIN(A.CLOSEDATE)) as varchar(4)) INV_YEAR
+               , MIN(VCPRT.PORTFOLIO) as PORTFOLIO
+               , MIN(A.CURRENCY6) INST_CURR
+               , MIN(SFA.NAME) AS SPONSOR
+               , case  
+                   when MIN(SFASTAT.DESCR) like 'Exited Portfolio Co.%' 
+                     then '0' else '1' 
+                 end  as CMPACTIVESTATUS 
+               , case  
+                   when MIN(SFASTAT.DESCR) like 'Exited Portfolio Co.%' 
+                     then 'Exited' else 'Active' 
+                 end  as CMPSTATUS_DashBrd 
+               , MIN(SFA_CMP.NAME)            COMPANY
+               , MIN(SFA_CMP.IQID)            COMPANY_IQID
+               , MIN(SFA_CMP.CREATIONDATE)    CREATIONDATE
+               , MIN(INVINS.LIBELLE) FUND
+               , MIN(ltrim(rtrim(INVINS.usertext23))) Cusip 
+               , case 
+                   when MIN(INVINS.USERTEXT21) = 1 then 'Fund' 
+                   when MIN(INVINS.USERTEXT21) = 2 then 'Company' 
+                 end as LP_TYPE
+               , CASE MIN(VCP.USERTEXT30)
+                   WHEN '1' THEN 'Voting Member'
+                   WHEN '2' THEN 'Non-Voting Member'
+                   WHEN '3' THEN 'Observation Rights'
+                   WHEN '4' THEN 'None'
+                 END AS BOARD_RIGHTS
+               , MIN(INVINS.CURRENCY1) CURRENCY
+               , min(OPT.DESCR) descr
+            FROM VCINVESTMENTINS INVINS 
+                JOIN VCINVESTMENT VCINV ON VCINV.IQID = INVINS.INVESTMENT AND VCINV.IQDELETED=0
+                LEFT JOIN (SELECT  ACCOUNT, MAX(USERTEXT7) USERTEXT7, MAX(USERDATE5) USERDATE5, MAX(USERTEXT30) USERTEXT30 FROM VCPROJECT VCP1 WHERE VCP1.IQDELETED=0 AND 
+                                VCP1.WORKFLOW in (SELECT IQID 
+                                                    FROM ADMWORKFLOW 
+                                                    WHERE LIBELLE IN ('RGA Direct Mezzanine','RGA Equity Co-Investment')
+                                                      and 
+                                                      CHANGESTATUSDATE <=  " & DML(%DATE) & " 
+                                                 )   
+                             GROUP BY ACCOUNT                  
+                          ) VCP ON VCP.ACCOUNT = VCINV.ACCOUNT
+                LEFT JOIN SFAACCOUNT SFA 
+                   ON SFA.IQID = VCP.USERTEXT7 
+                     AND SFA.IQDELETED=0   
+                LEFT JOIN SFAACCOUNT SFA_CMP 
+                  ON SFA_CMP.IQID = VCINV.ACCOUNT 
+                    AND SFA_CMP.IQDELETED=0                                                                                                                                                                                            
+                LEFT JOIN SFAACCTSTAT SFASTAT 
+                  ON SFA_CMP.STATUS = SFASTAT.CODE 
+                    AND  SFASTAT.FILTER NOT LIKE '000%'                                                                                                                                                                                                    
+                JOIN VCPORTFOLIOASSET VCPRTAST 
+                  ON VCPRTAST.INVESTMENT = VCINV.IQID  
+                    AND  VCPRTAST.IQDELETED=0  
+                JOIN VCPORTFOLIO VCPRT 
+                  ON VCPRT.IQID = VCPRTAST.PORTFOLIO 
+                    AND VCPRT.PORTFOLIO IN ('PDE - Direct Mezz + Equity') 
+                    AND  VCPRT.IQDELETED=0  
+                LEFT JOIN VCINVESTMENTOP A  
+                  ON A.INVESTMENTINS=INVINS.IQID 
+                LEFT JOIN VCINVESTOPTYPE OPT 
+                  ON OPT.CODE = A.TYPEINVESTOP 
+                    AND (OPT.CODE = 'LN03'      -- 'LN - Funding (w/o commitment)' 
+                          or OPT.CODE = 'LN02'  -- 'LN - Funding (following commitment)'
+                          or OPT.CODE = 'EQ03'  -- 'EQ - Purchase/Subscription (w/o Commitment)'
+                          or OPT.CODE = 'LN70'  -- 'LN - Transfer in'
+                          or OPT.CODE = 'LN71'  -- 'LN - Transfer out'
+                          or OPT.CODE = 'LN81'  -- 'LN - Conversion in 
+                          or OPT.CODE = 'LN82'  -- 'LN - Conversion out
+                        ) 
+                    AND OPT.FILTER NOT LIKE '000000%'
+                JOIN ADMROLE REG 
+                  ON VCINV.IQREGIONID = REG.IQID 
+                    AND REG.IQDELETED=0 
+                    AND A.IQREGIONID = REG.IQID 
+                    AND REG.NAME IN ('Private Debt & Equity')
+            WHERE INVINS.IQDELETED=0 
+              AND  A.IQDELETED=0 
+              AND A.CLOSEDATE <= " & DML(%DATE) & " 
+              AND ??FILTER
+            GROUP BY  INVINS.ACCOUNTINS        
+          " ;
+        COLUMN SECURITY_ID;     
+        RUN;
+        //PROC PRINT DATA=WORK.INVSTINS_LNEQ; TITLE 'INVSTINS_LNEQ'; RUN;
+        
+        // BGT 2018-07-13: Upgrade issue, EXIT column from calc engine doesn't include INTERNALTRANS anymore
+        DATA WORK.INSTRPOS_LNEQ (KEEP = POSITION_DATE COMPANY_NAME SECURITY_NAME EXIT CURRENTCOST PRINCIPAL LASTVALUATION SECURITY_ID INTERNALTRANS REIMBURSEMENT ALLOTHERINCOME);
+        SET DCE.REFINSTRUMENTPOSITIONS (WHERE POSITION_DATE=%DATE AND LENGTH(COMPANY_NAME)>0 );
+        @COLUMN_EXIT = Nz(@COLUMN_EXIT,0) + Nz(INTERNALTRANS,0);
+        RUN;
+        
+        //AND SECURITY_CLASS_NAME <>"LOANS" 
+        
+        DATA WORK.DIRLNEQ_LIST(RENAME = (SECURITY_ID=SECURITY_COMPANY_ID POSITION_DATE=REFERENCE_DATE));
+        MERGE WORK.INVSTINS_LNEQ(IN=IN1) WORK.INSTRPOS_LNEQ(IN=IN2);
+        BY SECURITY_ID;
+        If (IN1 and IN2) then Output;
+        End;
+        RUN; 
+        
+        //PROC PRINT DATA=WORK.INVSTINS_LNEQ; TITLE "INVSTINS_LNEQ"; RUN;
+        //PROC PRINT DATA=WORK.INSTRPOS_LNEQ; TITLE "INSTRPOS_LNEQ"; RUN;
+        
+        
+        PROC FAQUERY Query="IT Admin - Program Queries\Positions-PortRev" (DATE=%DATE) ; 
+            TABLE "Default"  OUT=WORK.QRY_POSITIONS_PORTREV;
+        RUN;
+        //PROC PRINT DATA=WORK.QRY_POSITIONS_PORTREV; RUN;
+        
+        DATA WORK.QRY_POSITIONS_PORTREV(DROP = LASTVALUATION);
+        SET WORK.QRY_POSITIONS_PORTREV;
+        COLUMN CUSIP TYPE=STRING; 
+        CUSIP = ltrim(rtrim(Q_CUSIP)) ; 
+        RUN;
+        
+        DATA WORK.DIRLNEQ_LIST;
+        MERGE WORK.DIRLNEQ_LIST(IN=IN1) WORK.QRY_POSITIONS_PORTREV;
+        BY CUSIP  ;
+        If (IN1) then Output;
+        End;
+        RUN; 
+        //PROC PRINT DATA=WORK.DIRLNEQ_LIST; RUN;
+        
+        DATA WORK.DIRLNEQ_LIST(DROP=FUND_ID FUND INVESTORNAME GAAP_BOOK_VALUE GL_COST_ELIM );
+        SET WORK.DIRLNEQ_LIST;
+             IF LP_TYPE = 'Fund' THEN CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM; END;
+        RUN;
+        //PROC PRINT DATA=WORK.DIRLNEQ_LIST; RUN;
+        
+        PROC MEANS DATA = DCE.FV_T_PORTCO_TRANSACTIONS(WHERE REFERENCE_DATE<=%DATE 
+                                                         AND TRANSACTION_TYPE<>'LN05' 
+                                                         AND TRANSACTION_TYPE<>'LN07' 
+                                                         AND TRANSACTION_TYPE<>'EQ06'
+                                                       ) OUT=WORK.TIRR_LNEQ;
+        //CLASS SECURITY_COMPANY_ID REFERENCE_DATE TRANSACTION_TYPE_NAME; 
+        CLASS SECURITY_COMPANY_ID REFERENCE_DATE; 
+        VAR  SECURITY_NAME; 
+        VAR  COMPANY_NAME;     
+        SUM CASH2(NAME=IRRNET);
+        RUN; 
+        
+        PROC MEANS DATA =  WORK.DIRLNEQ_LIST OUT=WORK.TVALUATION_LNEQ;
+        CLASS SECURITY_COMPANY_ID REFERENCE_DATE; 
+        VAR  SECURITY_NAME;  
+        VAR  COMPANY_NAME;     
+        SUM LASTVALUATION(NAME=IRRNET);
+        RUN; 
+        
+        DATA WORK.TIRR_LNEQ;
+        SET  WORK.TIRR_LNEQ(IN=T1) WORK.TVALUATION_LNEQ; 
+        IF IRRNET IS NULL THEN IRRNET=0; END; 
+        
+        COLUMN SORT_IRR TYPE=INTEGER; 
+        
+        IF T1 THEN SORT_IRR=0;  
+        ELSE SORT_IRR=1; 
+        REFERENCE_DATE=%DATE;
+        END; 
+        _OUTPUT_=IRRNET <> 0 OR SORT_IRR=1;
+        RUN; 
+        
+        PROC SORT DATA = WORK.TIRR_LNEQ; 
+        BY SECURITY_COMPANY_ID SECURITY_NAME COMPANY_NAME SORT_IRR REFERENCE_DATE; 
+        RUN; 
+        
+        //---------------------------
+            DATA WORK.DIRLNEQ_LIST; 
+              SET WORK.DIRLNEQ_LIST;  
+              COLUMN CalcProceedsValue TYPE=FLOAT; 
+              COLUMN V_EXIT TYPE=FLOAT; 
+              If INTERNALTRANS <> 0
+                 THEN V_EXIT = REIMBURSEMENT + ALLOTHERINCOME;
+                ELSE 
+                  V_EXIT = EXIT ; 
+              End; 
+            RUN;  
+        //---------------------------
+        
+        DATA WORK.DIRLNEQ_LIST1;
+        MERGE WORK.DIRLNEQ_LIST(IN=IN1) WORK.TIRR_LNEQ(IN=IN2);
+        By SECURITY_COMPANY_ID;
+        If (IN1 and IN2) then Output;
+        End;
+        RUN;
+        
+        //PROC PRINT DATA=WORK.DIRLNEQ_LIST; RUN;
+        //PROC PRINT DATA=WORK.TIRR_LNEQ; TITLE 'TIRR_LNEQ';RUN;
+        //PROC PRINT DATA=WORK.DIRLNEQ_LIST1; TITLE 'DIRLNEQ_LIST1';RUN;
+
+        PROC FAQUERY Query="IT Admin - Program Queries\INDUSTRY" (DATE=%DATE) ; 
+        TABLE "Default"  OUT=WORK.QRY_INDUSTRY;
+        RUN;
+        //PROC PRINT DATA=WORK.QRY_POSITIONS_PORTREV; RUN;
+        
+        DATA WORK.QRY_INDUSTRY (RENAME = (IQID = COMPANY_IQID));
+        SET  WORK.QRY_INDUSTRY;
+        RUN;
+           
+        DATA WORK.DIRLNEQ_LIST1;
+        MERGE WORK.DIRLNEQ_LIST1(IN=IN1) WORK.QRY_INDUSTRY;
+        BY COMPANY_IQID;
+        If (IN1) then Output;
+        End;
+        RUN; 
+        //PROC PRINT DATA=WORK.DIRLNEQ_LIST1; TITLE 'DIRLNEQ_LIST1'; RUN;
+        
+             
+        DATA DIRLNEQ_LIST1; 
+             SET WORK.DIRLNEQ_LIST1;  
+             COLUMN TOTALVALUE TYPE=FLOAT; 
+             If INTERNALTRANS <> 0
+                Then TOTALVALUE = V_EXIT + LASTVALUATION; 
+              Else  
+                TOTALVALUE = EXIT + LASTVALUATION;
+             End;   
+            //TOTALVALUE = V_EXIT; //EXIT + LASTVALUATION;                                                                                                                                                                                     
+        RUN;         
+        //PROC PRINT DATA =  DIRLNEQ_LIST1; RUN;  
+%end;
+/*------------------4. Direct Mezz + Equity --------------*/
+
+
+/*------------------4a. Direct Mezz + Equity --------------*/  
+%if %Code_SW = '0099'
+    or %Code_SW = '0003'
+   %then 
+        DATA WORK.INVSTINS_LNEQ;
+        SQL "SELECT 
+                 MIN(INVINS.ACCOUNTINS) INVINS_ACCOUNTINS     
+               /*, SUM( (CASE 
+                         WHEN (OPT.CODE = 'LN03'      -- 'LN - Funding (w/o commitment)' 
+                                  or OPT.CODE = 'LN02'  -- 'LN - Funding (following commitment)'
+                                  or OPT.CODE = 'EQ03'  -- 'EQ - Purchase/Subscription (w/o Commitment)'
+                                  or OPT.CODE = 'LN70'  -- 'LN - Transfer in'
+                                  or OPT.CODE = 'LN71'  -- 'LN - Transfer out'
+                                  or OPT.CODE = 'LN81'  -- 'LN - Conversion in 
+                                  or OPT.CODE = 'LN82'  -- 'LN - Conversion out
+                                  or OPT.CODE = 'EQ02'  -- 'EQ - Subscription Captial Issue with Commitment'
+                              )  
+                           THEN  A.AMOUNT2 
+                         ELSE 0 
+                       END
+                      ) *(-1)
+                    ) INVESTMENT*/    --001
+               , SUM( (CASE 
+                         WHEN (OPT.CODE = 'LN03'      -- 'LN - Funding (w/o commitment)' 
+                                or OPT.CODE = 'LN02'  -- 'LN - Funding (following commitment)'
+                                or OPT.CODE = 'LN70'  -- 'LN - Transfer in'
+                                or OPT.CODE = 'LN71'  -- 'LN - Transfer out'
+                                or OPT.CODE = 'LN81'  -- 'LN - Conversion in 
+                                or OPT.CODE = 'LN82'  -- 'LN - Conversion out
+                              --  or OPT.CODE = 'LN06'  -- 'Underwriting Fees:'        --001 commented out    
+                                or OPT.code = 'EQ03'     -- 'EQ - Purchase/Subscription (w/o Commitment)%'
+                                or OPT.code = 'EQ42' -- 'EQ - Reinvestment of cash Dividend into Shares
+                                or OPT.code = 'EQ02' -- 'EQ - Subscription (Capital Issue with Commitment)
+                                or OPT.code = 'EQ81' -- 'EQ - Conversion In
+                                or OPT.code = 'EQ82' -- 'EQ - Conversion Out
+                              --  or OPT.code = 'EQ05' -- 'EQ - Underwriting Fees
+                              )  
+                           THEN  A.AMOUNT2 
+                         ELSE 0 
+                       END
+                      ) *(-1)
+                    ) INVESTMENT    --001
+               , cast(DATEPART(YYYY,MIN(A.CLOSEDATE)) as varchar(4)) INV_YEAR
+               , MIN(VCPRT.PORTFOLIO) as PORTFOLIO
+               , MIN(A.CURRENCY6) INST_CURR
+               , MIN(SFA.NAME) AS SPONSOR
+               , case  
+                   when MIN(SFASTAT.DESCR) like 'Exited Portfolio Co.%' 
+                     then '0' else '1' 
+                 end  as CMPACTIVESTATUS 
+               , case  
+                   when MIN(SFASTAT.DESCR) like 'Exited Portfolio Co.%' 
+                     then 'Exited' else 'Active' 
+                 end  as CMPSTATUS_DashBrd 
+               , MIN(SFA_CMP.NAME)            COMPANY
+               , MIN(SFA_CMP.IQID)            COMPANY_IQID
+               , MIN(SFA_CMP.CREATIONDATE)    CREATIONDATE
+               , MIN(INVINS.LIBELLE) FUND
+               , MIN(ltrim(rtrim(INVINS.usertext23))) Cusip 
+               , case 
+                   when MIN(INVINS.USERTEXT21) = 1 then 'Fund' 
+                   when MIN(INVINS.USERTEXT21) = 2 then 'Company' 
+                 end as LP_TYPE
+               , CASE MIN(VCP.USERTEXT30)
+                   WHEN '1' THEN 'Voting Member'
+                   WHEN '2' THEN 'Non-Voting Member'
+                   WHEN '3' THEN 'Observation Rights'
+                   WHEN '4' THEN 'None'
+                 END AS BOARD_RIGHTS
+               , MIN(INVINS.CURRENCY1) CURRENCY
+               , min(OPT.DESCR) descr
+            FROM VCINVESTMENTINS INVINS 
+                JOIN VCINVESTMENT VCINV ON VCINV.IQID = INVINS.INVESTMENT AND VCINV.IQDELETED=0
+                LEFT JOIN (SELECT  ACCOUNT, MAX(USERTEXT7) USERTEXT7, MAX(USERDATE5) USERDATE5, MAX(USERTEXT30) USERTEXT30 FROM VCPROJECT VCP1 WHERE VCP1.IQDELETED=0 AND 
+                                VCP1.WORKFLOW in (SELECT IQID 
+                                                    FROM ADMWORKFLOW 
+                                                    WHERE LIBELLE IN ('RGA Direct Mezzanine','RGA Equity Co-Investment','RGA Fund Investment')
+                                                      and 
+                                                      CHANGESTATUSDATE <=  " & DML(%DATE) & " 
+                                                 )   
+                             GROUP BY ACCOUNT                  
+                          ) VCP ON VCP.ACCOUNT = VCINV.ACCOUNT
+                LEFT JOIN SFAACCOUNT SFA 
+                   ON SFA.IQID = VCP.USERTEXT7 
+                     AND SFA.IQDELETED=0   
+                LEFT JOIN SFAACCOUNT SFA_CMP 
+                  ON SFA_CMP.IQID = VCINV.ACCOUNT 
+                    AND SFA_CMP.IQDELETED=0                                                                                                                                                                                            
+                LEFT JOIN SFAACCTSTAT SFASTAT 
+                  ON SFA_CMP.STATUS = SFASTAT.CODE 
+                    AND  SFASTAT.FILTER NOT LIKE '000%'                                                                                                                                                                                                    
+                JOIN VCPORTFOLIOASSET VCPRTAST 
+                  ON VCPRTAST.INVESTMENT = VCINV.IQID  
+                    AND  VCPRTAST.IQDELETED=0  
+                JOIN VCPORTFOLIO VCPRT 
+                  ON VCPRT.IQID = VCPRTAST.PORTFOLIO 
+                    AND VCPRT.PORTFOLIO IN ('PDE - Direct Investments') --('PDE - Direct Mezz + Equity') 
+                    AND  VCPRT.IQDELETED=0  
+                LEFT JOIN VCINVESTMENTOP A  
+                  ON A.INVESTMENTINS=INVINS.IQID 
+                LEFT JOIN VCINVESTOPTYPE OPT 
+                  ON OPT.CODE = A.TYPEINVESTOP 
+                    /*AND (OPT.CODE = 'LN03'      -- 'LN - Funding (w/o commitment)' 
+                          or OPT.CODE = 'LN02'  -- 'LN - Funding (following commitment)'
+                          or OPT.CODE = 'EQ03'  -- 'EQ - Purchase/Subscription (w/o Commitment)'
+                          or OPT.CODE = 'LN70'  -- 'LN - Transfer in'
+                          or OPT.CODE = 'LN71'  -- 'LN - Transfer out'
+                          or OPT.CODE = 'LN81'  -- 'LN - Conversion in 
+                          or OPT.CODE = 'LN82'  -- 'LN - Conversion out
+                          or OPT.CODE = 'EQ02'  -- 'EQ - Subscription Captial Issue with Commitment'
+                        )*/    --001
+                    AND (OPT.CODE = 'LN03'      -- 'LN - Funding (w/o commitment)' 
+                                or OPT.CODE = 'LN02'  -- 'LN - Funding (following commitment)'
+                                or OPT.CODE = 'LN70'  -- 'LN - Transfer in'
+                                or OPT.CODE = 'LN71'  -- 'LN - Transfer out'
+                                or OPT.CODE = 'LN81'  -- 'LN - Conversion in 
+                                or OPT.CODE = 'LN82'  -- 'LN - Conversion out
+                              --  or OPT.CODE = 'LN06'  -- 'Underwriting Fees:'    --001 commented out        
+                                or OPT.code = 'EQ03'     -- 'EQ - Purchase/Subscription (w/o Commitment)%'
+                                or OPT.code = 'EQ42' -- 'EQ - Reinvestment of cash Dividend into Shares
+                                or OPT.code = 'EQ02' -- 'EQ - Subscription (Capital Issue with Commitment)
+                                or OPT.code = 'EQ81' -- 'EQ - Conversion In
+                                or OPT.code = 'EQ82' -- 'EQ - Conversion Out
+                                or OPT.code = 'EQ05' -- 'EQ - Underwriting Fees
+                        )    --001    
+                    AND OPT.FILTER NOT LIKE '000000%'
+                JOIN ADMROLE REG 
+                  ON VCINV.IQREGIONID = REG.IQID 
+                    AND REG.IQDELETED=0 
+                    AND A.IQREGIONID = REG.IQID 
+                    AND REG.NAME IN ('Private Debt & Equity')
+            WHERE INVINS.IQDELETED=0 
+              AND  A.IQDELETED=0 
+              AND A.CLOSEDATE <= " & DML(%DATE) & " 
+              AND ??FILTER
+            GROUP BY  INVINS.ACCOUNTINS        
+          " ;
+        COLUMN SECURITY_ID;     
+        RUN;
+        //PROC PRINT DATA=WORK.INVSTINS_LNEQ; TITLE 'INVSTINS_LNEQ'; RUN;
+        
+        // BGT 2018-07-13: Upgrade issue, EXIT column from calc engine doesn't include INTERNALTRANS anymore
+        DATA WORK.INSTRPOS_LNEQ (KEEP = POSITION_DATE COMPANY_NAME SECURITY_NAME EXIT CURRENTCOST PRINCIPAL LASTVALUATION SECURITY_ID INTERNALTRANS REIMBURSEMENT ALLOTHERINCOME);
+        SET DCE.REFINSTRUMENTPOSITIONS (WHERE POSITION_DATE=%DATE AND LENGTH(COMPANY_NAME)>0 );
+        @COLUMN_EXIT = Nz(@COLUMN_EXIT,0) + Nz(INTERNALTRANS,0);
+        RUN;
+        
+        //AND SECURITY_CLASS_NAME <>"LOANS" 
+        
+        DATA WORK.DIRLNEQ_LIST(RENAME = (SECURITY_ID=SECURITY_COMPANY_ID POSITION_DATE=REFERENCE_DATE));
+        MERGE WORK.INVSTINS_LNEQ(IN=IN1) WORK.INSTRPOS_LNEQ(IN=IN2);
+        BY SECURITY_ID;
+        If (IN1 and IN2) then Output;
+        End;
+        RUN; 
+        
+        //PROC PRINT DATA=WORK.INVSTINS_LNEQ; TITLE "INVSTINS_LNEQ"; RUN;
+        //PROC PRINT DATA=WORK.INSTRPOS_LNEQ; TITLE "INSTRPOS_LNEQ"; RUN;
+        
+        
+        PROC FAQUERY Query="IT Admin - Program Queries\Positions-PortRev" (DATE=%DATE) ; 
+            TABLE "Default"  OUT=WORK.QRY_POSITIONS_PORTREV;
+        RUN;
+        //PROC PRINT DATA=WORK.QRY_POSITIONS_PORTREV; RUN;
+        
+        DATA WORK.QRY_POSITIONS_PORTREV(DROP = LASTVALUATION);
+        SET WORK.QRY_POSITIONS_PORTREV;
+        COLUMN CUSIP TYPE=STRING; 
+        CUSIP = ltrim(rtrim(Q_CUSIP)) ; 
+        RUN;
+        
+        DATA WORK.DIRLNEQ_LIST;
+        MERGE WORK.DIRLNEQ_LIST(IN=IN1) WORK.QRY_POSITIONS_PORTREV;
+        BY CUSIP  ;
+        If (IN1) then Output;
+        End;
+        RUN; 
+        //PROC PRINT DATA=WORK.DIRLNEQ_LIST; RUN;
+        
+        DATA WORK.DIRLNEQ_LIST(DROP=FUND_ID FUND INVESTORNAME GAAP_BOOK_VALUE GL_COST_ELIM );
+        SET WORK.DIRLNEQ_LIST;
+             IF LP_TYPE = 'Fund' THEN CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM; END;
+        RUN;
+        //PROC PRINT DATA=WORK.DIRLNEQ_LIST; RUN;
+        
+        PROC MEANS DATA = DCE.FV_T_PORTCO_TRANSACTIONS(WHERE REFERENCE_DATE<=%DATE 
+                                                         AND TRANSACTION_TYPE<>'LN05' 
+                                                         AND TRANSACTION_TYPE<>'LN07' 
+                                                         AND TRANSACTION_TYPE<>'EQ06'
+                                                       ) OUT=WORK.TIRR_LNEQ;
+        //CLASS SECURITY_COMPANY_ID REFERENCE_DATE TRANSACTION_TYPE_NAME; 
+        CLASS SECURITY_COMPANY_ID REFERENCE_DATE; 
+        VAR  SECURITY_NAME; 
+        VAR  COMPANY_NAME;     
+        SUM CASH2(NAME=IRRNET);
+        RUN; 
+        
+        PROC MEANS DATA =  WORK.DIRLNEQ_LIST OUT=WORK.TVALUATION_LNEQ;
+        CLASS SECURITY_COMPANY_ID REFERENCE_DATE; 
+        VAR  SECURITY_NAME;  
+        VAR  COMPANY_NAME;     
+        SUM LASTVALUATION(NAME=IRRNET);
+        RUN; 
+        
+        DATA WORK.TIRR_LNEQ;
+        SET  WORK.TIRR_LNEQ(IN=T1) WORK.TVALUATION_LNEQ; 
+        IF IRRNET IS NULL THEN IRRNET=0; END; 
+        
+        COLUMN SORT_IRR TYPE=INTEGER; 
+        
+        IF T1 THEN SORT_IRR=0;  
+        ELSE SORT_IRR=1; 
+        REFERENCE_DATE=%DATE;
+        END; 
+        _OUTPUT_=IRRNET <> 0 OR SORT_IRR=1;
+        RUN; 
+        
+        PROC SORT DATA = WORK.TIRR_LNEQ; 
+        BY SECURITY_COMPANY_ID SECURITY_NAME COMPANY_NAME SORT_IRR REFERENCE_DATE; 
+        RUN; 
+        
+        //---------------------------
+            DATA WORK.DIRLNEQ_LIST; 
+              SET WORK.DIRLNEQ_LIST;  
+              COLUMN CalcProceedsValue TYPE=FLOAT; 
+              COLUMN V_EXIT TYPE=FLOAT; 
+              If INTERNALTRANS <> 0
+                 THEN V_EXIT = REIMBURSEMENT + ALLOTHERINCOME;
+                ELSE 
+                  V_EXIT = EXIT ; 
+              End; 
+            RUN;  
+        //---------------------------
+        
+        DATA WORK.DIRLNEQ_LIST1;
+        MERGE WORK.DIRLNEQ_LIST(IN=IN1) WORK.TIRR_LNEQ(IN=IN2);
+        By SECURITY_COMPANY_ID;
+        If (IN1 and IN2) then Output;
+        End;
+        RUN;
+        
+        //PROC PRINT DATA=WORK.DIRLNEQ_LIST; RUN;
+        //PROC PRINT DATA=WORK.TIRR_LNEQ; TITLE 'TIRR_LNEQ';RUN;
+        //PROC PRINT DATA=WORK.DIRLNEQ_LIST1; TITLE 'DIRLNEQ_LIST1';RUN;
+
+        PROC FAQUERY Query="IT Admin - Program Queries\INDUSTRY" (DATE=%DATE) ; 
+        TABLE "Default"  OUT=WORK.QRY_INDUSTRY;
+        RUN;
+        //PROC PRINT DATA=WORK.QRY_POSITIONS_PORTREV; RUN;
+        
+        DATA WORK.QRY_INDUSTRY (RENAME = (IQID = COMPANY_IQID));
+        SET  WORK.QRY_INDUSTRY;
+        RUN;
+           
+        DATA WORK.DIRLNEQ_LIST1;
+        MERGE WORK.DIRLNEQ_LIST1(IN=IN1) WORK.QRY_INDUSTRY;
+        BY COMPANY_IQID;
+        If (IN1) then Output;
+        End;
+        RUN; 
+        //PROC PRINT DATA=WORK.DIRLNEQ_LIST1; TITLE 'DIRLNEQ_LIST1'; RUN;
+        
+             
+        DATA PDE_Direct_Investment; 
+             SET WORK.DIRLNEQ_LIST1;  
+             COLUMN TOTALVALUE TYPE=FLOAT; 
+             If INTERNALTRANS <> 0
+                Then TOTALVALUE = V_EXIT + LASTVALUATION; 
+              Else  
+                TOTALVALUE = EXIT + LASTVALUATION;
+             End;   
+            //TOTALVALUE = V_EXIT; //EXIT + LASTVALUATION;                                                                                                                                                                                     
+        RUN;         
+        //PROC PRINT DATA =  DIRLNEQ_LIST1; RUN;  
+%end;
+/*------------------4a. Direct Mezz + Equity --------------*/
+
+/*------------------1. Portfolio Snapshot ----------------*/ 
+%if %Code_SW = '0099'
+    or %Code_SW = '0003'							  
+    or %Code_SW = '0011'							  
+   %then 
+        // Code is using Tab 7 Data
+        DATA WORK.FUND_PORTSnap(DROP = CLOSEDATE ENDDATE); 
+          SET FUND_LIST1;  
+         // COLUMN TOTALVALUE TYPE=FLOAT; 
+         // TOTALVALUE= RETURNOFCAPITAL + LASTVALUATION; 
+          COLUMN SEQ TYPE=INTEGER; 
+          SEQ=0;		
+        RUN;                                                                                                                                                                                                     
+		// following section of code calcs "Private Debt Fund" and "Private Equity Fund" IRRNET																							  
+        PROC MEANS DATA=WORK.FUND_PORTSnap  
+          OUT=WORK.FUND_PORTSnap_IRR;
+          CLASS FUND_CLASS3;
+          //CURRENCY;
+          IRR IRRNET(NAME=IRRNET DATE=OPERATIONDATE);    
+        RUN; 
+      // PROC PRINT DATA = WORK.FUND_PORTSnap;title "FUND_PORTSnap counts"; RUN;                                                                                                                                                                                                    
+       //PROC PRINT DATA = WORK.FUND_LIST1;title "FUND_LIST1 "; RUN;                                                                                                                                                                                                    
+         
+        DATA WORK.FUND_PORTSnap_FundTot;
+          SET WORK.FUND_PORTSnap;
+          FUND_CLASS3='Total-Funds';
+          SEQ=1;
+        RUN;
+        
+        //PROC PRINT DATA = WORK.FUND_PORTSnap_FundTot;title "FUND_PORTSnap_FundTot IRRNET"; RUN;                                                                                                                                                                                                    
+        
+        PROC MEANS DATA=WORK.FUND_PORTSnap_FundTot  
+          OUT=WORK.FUND_PORTSnap_IRR_Tot;
+          //CLASS CURRENCY;
+          VAR FUND_CLASS3;
+          VAR SEQ;
+          IRR IRRNET(NAME=IRRNET DATE=OPERATIONDATE);    
+        RUN;        
+
+        //PROC PRINT DATA = WORK.FUND_PORTSnap_IRR_Tot; RUN;                                                                                                                                                                                                      
+                                                                                                                                                                                                            
+        PROC MEANS DATA=WORK.FUND_PORTSnap  OUT=WORK.FUND_PORTSnap;                                        
+          CLASS FUND_ID;
+          VAR SEQ;  
+          VAR FACTIVESTATUS;  
+          VAR FUND_CLASS3;
+          //VAR CURRENCY;
+          MIN CURRENTCOST (NAME = BOOKVALUE);  
+          MIN CAPITALINVESTED (NAME = CAPITALINVESTED);
+          MIN RETURNOFCAPITAL (NAME = REALIZED);                                                                                                                                                                                                        
+          MIN LASTVALUATION (NAME = MARKETVALUE);
+          MIN TOTALVALUE (NAME = TOTALVALUE);                                                                                                                                                                                                        
+        RUN;                                                                                                                                                                                                           
+        
+        //PROC PRINT DATA = WORK.FUND_PORTSnap;title "FUND_PORTSnap counts"; RUN;                                                                                                                                                                                                    
+        
+        PROC MEANS DATA=WORK.FUND_PORTSnap  OUT=WORK.FUND_PORTSnap;  
+          CLASS FUND_CLASS3; 
+          //CURRENCY;
+          VAR SEQ;
+          N  FUND_ID (NAME = ITD_FUNDS);   
+          SUM FACTIVESTATUS(NAME = ACTIVESTATUS);                                                                                                                                                                                                          
+          SUM BOOKVALUE (NAME = BOOKVALUE);  
+          SUM CAPITALINVESTED (NAME = CAPITALINVESTED);
+          SUM REALIZED (NAME = REALIZED);                                                                                                                                                                                                        
+          SUM MARKETVALUE (NAME = MARKETVALUE);
+          SUM TOTALVALUE (NAME = TOTALVALUE);   
+        RUN;
+        
+        DATA WORK.FUND_PORTSnap_FundTot1;
+         SET WORK.FUND_PORTSnap;
+         FUND_CLASS3='Total-Funds';
+         SEQ=1;
+        RUN;
+
+        //PROC PRINT DATA =WORK.FUND_PORTSnap_FundTot1;title "FUND_PORTSnap_FundTot1 counts"; RUN;  
+        
+        PROC MEANS DATA=WORK.FUND_PORTSnap_FundTot1 OUT=WORK.FUND_PORTSnap_FundTot1; 
+          //CLASS CURRENCY;
+          VAR FUND_CLASS3; 
+          VAR SEQ;
+          SUM ITD_FUNDS (NAME = ITD_FUNDS);   
+          SUM ACTIVESTATUS (NAME = ACTIVESTATUS);                                                                                                                                                                                                          
+          SUM BOOKVALUE (NAME = BOOKVALUE);  
+          SUM CAPITALINVESTED (NAME = CAPITALINVESTED);
+          SUM REALIZED (NAME = REALIZED);                                                                                                                                                                                                        
+          SUM MARKETVALUE (NAME = MARKETVALUE);
+          SUM TOTALVALUE (NAME = TOTALVALUE);   
+        RUN; 
+        
+        //PROC PRINT DATA =WORK.FUND_PORTSnap_FundTot1; RUN;
+        
+        DATA WORK.FUND_PORTSnap_FundTot1;                                                                                                                                                                                                     
+          SET WORK.FUND_PORTSnap_FundTot1;  
+          COLUMN MOC TYPE=FLOAT; 
+          MOC = TOTALVALUE/CAPITALINVESTED;                                                                                                                                                                                     
+        RUN;
+       
+        //PROC PRINT DATA = WORK.FUND_PORTSnap_FundTot1; RUN;
+        
+        DATA WORK.FUND_PORTSnap;             // Calculate MOC                                                                                                                                                                                                 
+          SET WORK.FUND_PORTSnap;  
+          COLUMN MOC TYPE=FLOAT; 
+          MOC = TOTALVALUE/CAPITALINVESTED;                                                                                                                                                                                     
+        RUN;    
+               
+
+       //PROC PRINT DATA = WORK.FUND_PORTSnap; RUN;     
+               
+               
+        DATA WORK.FUND_PORTSnap;
+          MERGE WORK.FUND_PORTSnap(IN=IN1) 
+                WORK.FUND_PORTSnap_IRR(IN=IN2);
+          BY FUND_CLASS3;
+          //CURRENCY;
+          If (IN1 and IN2) then Output;
+          End;
+        RUN; 
+        
+       //PROC PRINT DATA = WORK.FUND_PORTSnap; RUN;
+        
+        
+        DATA WORK.FUND_PORTSnap_FundTot1;
+          MERGE WORK.FUND_PORTSnap_FundTot1(IN=IN1) 
+                WORK.FUND_PORTSnap_IRR_Tot(IN=IN2);
+          BY FUND_CLASS3;
+          //CURRENCY;
+          If (IN1 and IN2) then Output;
+          End;
+        RUN; 
+                                                                                                                                                                                                          
+        //PROC PRINT DATA =WORK.FUND_PORTSnap_FundTot1;title "FUND_PORTSnap_FundTot1"; RUN;  
+                                                                                                                                                                                                            
+        /*******Directs*******/
+        
+        DATA WORK.MEZZ_PORTSnap; 
+          SET DIRLOAN_LIST1_QTR;   // was WORK.DIRLOAN_LIST1 
+        //  COLUMN TOTALVALUE TYPE=FLOAT; 
+        //  TOTALVALUE = EXIT + LASTVALUATION;  
+          COLUMN FUND_CLASS3 TYPE = STRING; 
+          FUND_CLASS3 = 'Direct Mezzanine';
+          COLUMN SEQ TYPE=INTEGER; 
+          SEQ=0;
+        RUN; 
+       
+       //PROC PRINT DATA = WORK.MEZZ_PORTSnap; title "MEZZ_PORTSnap checking for Total Value"; RUN;  
+
+        DATA WORK.MEZZ_PORTSnap; 
+          SET WORK.MEZZ_PORTSnap;   
+          if INSTR_STATUS = 'Active'
+             then CMPACTIVESTATUS = 1;
+            else 
+               CMPACTIVESTATUS = 0;
+          end;     
+        RUN; 
+        //PROC PRINT DATA = WORK.MEZZ_PORTSnap;title "MEZZ_PORTSnap checking for CMPACTIVESTATUS after my change"; RUN;  
+
+        DATA WORK.EQUITY_PORTSnap; 
+          SET WORK.DIREQUITY_LIST1;  
+          COLUMN TOTALVALUE TYPE=FLOAT; 
+          TOTALVALUE = EXIT + LASTVALUATION;  
+          COLUMN FUND_CLASS3 TYPE = STRING; 
+          FUND_CLASS3 = 'Direct Equity';
+          COLUMN SEQ TYPE = INTEGER; 
+          SEQ=0;
+        RUN;   
+        //BLR Here...
+        //PROC PRINT DATA = WORK.EQUITY_PORTSnap;title "EQUITY_PORTSnap checking for EQ02"; RUN;
+
+        DATA WORK.DIRECTS_PORTSnap; 
+          SET WORK.MEZZ_PORTSnap WORK.EQUITY_PORTSnap;  
+        RUN;                                                                                                                                                                                                    
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap;title "DIRECTS_PORTSnap checking for EQ02"; RUN;  
+             
+        PROC MEANS DATA=WORK.DIRECTS_PORTSnap  
+          OUT=WORK.DIRECTS_PORTSnap_IRR;
+          CLASS FUND_CLASS3;
+          //CURRENCY; 
+          VAR SEQ; 
+          IRR IRRNET(NAME=IRRNET DATE=REFERENCE_DATE);    
+        RUN;  
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap_IRR;title "DIRECTS_PORTSnap_IRR checking for EQ02"; RUN;  
+        
+        
+        DATA WORK.DIRECTS_PORTSnap_DirTot;
+          SET WORK.DIRECTS_PORTSnap;
+          FUND_CLASS3='Total-Directs';
+          SEQ=1; 
+        RUN;
+        
+        PROC MEANS DATA=WORK.DIRECTS_PORTSnap_DirTot  
+          OUT=WORK.DIRECTS_PORTSnap_IRR_Tot;
+          VAR FUND_CLASS3; 
+          VAR SEQ;
+          IRR IRRNET(NAME=IRRNET DATE=REFERENCE_DATE);    
+        RUN;  
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap;Title "DIRECTS_PORTSnap ======"; RUN;  
+      
+        PROC MEANS DATA=WORK.DIRECTS_PORTSnap  
+          OUT=WORK.DIRECTS_PORTSnap_CNT;
+          CLASS COMPANY FUND_CLASS3;
+          VAR SEQ;   
+          MIN CMPACTIVESTATUS(NAME = CMPACTIVESTATUS);                                                                                                                                                                                                     
+        RUN;                                                                                                                                                                                                          
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap;title "DIRECTS_PORTSnap checking for EQ02"; RUN;  
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap_CNT;Title "DIRECTS_PORTSnap_CNT before ======"; RUN;  
+             
+             
+        PROC MEANS DATA=WORK.DIRECTS_PORTSnap_CNT  OUT=WORK.DIRECTS_PORTSnap_CNT;
+        CLASS FUND_CLASS3; 
+        VAR SEQ;
+        N  COMPANY(NAME = ITD_FUNDS);   
+        SUM CMPACTIVESTATUS(NAME = ACTIVESTATUS);                                                                                                                                                                                                     
+        RUN;   
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap_CNT;title "DIRECTS_PORTSnap_CNT After -------"; RUN;                                                                                                                                                                                                     
+        
+        DATA WORK.DIRECTS_PORTSnap_DirTot1;
+        SET WORK.DIRECTS_PORTSnap_CNT;
+        FUND_CLASS3='Total-Directs';
+        SEQ =1;
+        RUN;
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap_DirTot1;title "DIRECTS_PORTSnap_DirTot1 -------"; RUN;                                                                                                                                                                                                     
+        
+        PROC MEANS DATA=WORK.DIRECTS_PORTSnap_DirTot1  OUT=WORK.DIRECTS_PORTSnap_CNT_Tot;
+        VAR FUND_CLASS3; 
+        VAR SEQ;
+        SUM ITD_FUNDS(NAME = ITD_FUNDS);   
+        SUM ACTIVESTATUS(NAME = ACTIVESTATUS);     
+        RUN; 
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap_CNT;title "DIRECTS_PORTSnap_CNT ACTIVESTATUS"; RUN;                                                                                                                                                                                                     
+        
+        DATA WORK.DIRECTS_PORTSnap;
+          set WORK.DIRECTS_PORTSnap;
+          if V_EXIT is null 
+            then V_EXIT = EXIT;                                                                                                                                                                                                      
+          end; 
+        RUN;
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap;title "DIRECTS_PORTSnap check for EQ02"; RUN;                                                                                                                                                                                                     
+        
+        //PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\port_snapshot.xlsx" LABEL;
+        //   TABLE = WORK.DIRECTS_PORTSnap  
+        //   SHEETNAME="port";
+        //RUN;
+        
+        PROC MEANS DATA= WORK.DIRECTS_PORTSnap  
+          OUT = WORK.DIRECTS_PORTSnap;                                        
+          CLASS SECURITY_COMPANY_ID; 
+          VAR FUND_CLASS3; 
+          VAR SEQ __OPT_Code;
+          MIN CURRENTCOST (NAME = BOOKVALUE);  
+          MIN INVESTMENT (NAME = CAPITALINVESTED);
+          MIN V_EXIT (NAME = REALIZED);                                                                                                                                                                                                      
+          MIN LASTVALUATION (NAME = MARKETVALUE);
+          MIN TOTALVALUE (NAME = TOTALVALUE);                                                                                                                                                                                                        
+        RUN;                                                                                                                                                                                                            
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap;title "DIRECTS_PORTSnap min check for EQ02"; RUN;                                                                                                                                                                                                     
+        
+        PROC MEANS DATA= WORK.DIRECTS_PORTSnap  OUT= WORK.DIRECTS_PORTSnap;                                        
+        //0816 VAR FUNDS;   
+        CLASS FUND_CLASS3;
+        //CURRENCY;
+        VAR SEQ;
+        SUM BOOKVALUE (NAME = BOOKVALUE);  
+        SUM CAPITALINVESTED (NAME = CAPITALINVESTED);
+        SUM REALIZED (NAME = REALIZED);                                                                                                                                                                                                        
+        SUM MARKETVALUE (NAME = MARKETVALUE);
+        SUM TOTALVALUE (NAME = TOTALVALUE);   
+        RUN;                                                                                                                                                                                                    
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap;title "DIRECTS_PORTSnap sum check for EQ02"; RUN;   // works here *****                                                                                                                                                                                                 
+        
+        
+        DATA WORK.DIRECTS_PORTSnap_DirTot2;
+        SET WORK.DIRECTS_PORTSnap;
+        FUND_CLASS3='Total-Directs';
+        SEQ = 1;
+        RUN;
+        
+        PROC MEANS DATA=WORK.DIRECTS_PORTSnap_DirTot2  
+          OUT=WORK.DIRECTS_PORTSnap_Tot;
+          VAR FUND_CLASS3; 
+          VAR SEQ;
+          SUM BOOKVALUE (NAME = BOOKVALUE);  
+          SUM CAPITALINVESTED (NAME = CAPITALINVESTED);
+          SUM REALIZED (NAME = REALIZED);                                                                                                                                                                                                        
+          SUM MARKETVALUE (NAME = MARKETVALUE);
+          SUM TOTALVALUE (NAME = TOTALVALUE);    
+        RUN;
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap_DirTot2;title "DIRECTS_PORTSnap_DirTot2 check for EQ02"; RUN;                                                                                                                                                                                                     
+        
+        DATA WORK.DIRECTS_PORTSnap; 
+        SET WORK.DIRECTS_PORTSnap;  
+        COLUMN MOC TYPE=FLOAT; 
+           MOC = TOTALVALUE/CAPITALINVESTED;                                                                                                                                                                                     
+        RUN; 
+        
+        DATA WORK.DIRECTS_PORTSnap_Tot; 
+        SET WORK.DIRECTS_PORTSnap_Tot;  
+        COLUMN MOC TYPE=FLOAT; 
+          MOC = TOTALVALUE/CAPITALINVESTED;                                                                                                                                                                                     
+        RUN;
+                                                                                                                                                                                                            
+        //PROC PRINT DATA = WORK.DIRLOAN_PortSNP; RUN; 
+                                                                                                                                                                                                            
+        DATA WORK.DIRECTS_PORTSnap;
+        MERGE WORK.DIRECTS_PORTSnap(IN=IN1) 
+          WORK.DIRECTS_PORTSnap_IRR(IN=IN2);
+        BY FUND_CLASS3;
+        //CURRENCY;
+        If (IN1 and IN2) then Output;
+        End;
+        RUN; 
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap;title "DIRECTS_PORTSnap + IRR check for EQ02"; RUN;                                                                                                                                                                                                     
+                                                                                                                                                                                                    
+        DATA WORK.DIRECTS_PORTSnap;
+        MERGE WORK.DIRECTS_PORTSnap(IN=IN1) WORK.DIRECTS_PORTSnap_CNT(IN=IN2);
+        BY FUND_CLASS3;
+        //CURRENCY;
+        If (IN1 and IN2) then Output;
+        End;
+        RUN;   
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap;title "DIRECTS_PORTSnap + Cnt check for EQ02"; RUN;                                                                                                                                                                                                     
+        
+        DATA WORK.DIRECTS_PORTSnap_Tot;
+        MERGE WORK.DIRECTS_PORTSnap_Tot(IN=IN1) WORK.DIRECTS_PORTSnap_IRR_Tot(IN=IN2);
+        BY FUND_CLASS3;
+        //CURRENCY;
+        If (IN1 and IN2) then Output;
+        End;
+        RUN; 
+                                                                                                                                                                                                            
+        DATA WORK.DIRECTS_PORTSnap_Tot;
+        MERGE WORK.DIRECTS_PORTSnap_Tot(IN=IN1) WORK.DIRECTS_PORTSnap_CNT_Tot(IN=IN2);
+        BY FUND_CLASS3;
+        //CURRENCY;
+        If (IN1 and IN2) then Output;
+        End;
+        RUN;   
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap;title "DIRECTS_PORTSnap Final check for EQ02"; RUN;                                                                                                                                                                                                     
+               
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap; RUN;   
+        //PROC PRINT DATA = WORK.DIRECTS_PORTSnap_Tot; RUN;   
+        
+        /*---------Total---------*/ 
+        DATA WORK.TOTAL_PORTSnap; 
+        SET WORK.FUND_PORTSnap WORK.DIRECTS_PORTSnap;  
+        RUN; 
+        
+        //PROC PRINT DATA = WORK.TOTAL_PORTSnap;TITLE "TOTAL_PORTSnap *******"; RUN;
+        DATA WORK.TOTAL_PORTSnap_sve; 
+        SET WORK.TOTAL_PORTSnap;  
+        RUN; 
+        //PROC PRINT DATA = WORK.TOTAL_PORTSnap_sve;title "TOTAL_PORTSnap_sve  check for EQ02"; RUN;                                                                                                                                                                                                     
+        
+        PROC MEANS DATA= WORK.TOTAL_PORTSnap  
+          OUT= WORK.TOTAL_PORTSnap; 
+          SUM ITD_FUNDS (NAME = ITD_FUNDS);   
+          SUM ACTIVESTATUS(NAME = ACTIVESTATUS);                                                                                                                                                                                                        
+          SUM BOOKVALUE (NAME = BOOKVALUE);  
+          SUM CAPITALINVESTED (NAME = CAPITALINVESTED);
+          SUM REALIZED (NAME = REALIZED);                                                                                                                                                                                                        
+          SUM MARKETVALUE (NAME = MARKETVALUE);
+          SUM TOTALVALUE (NAME = TOTALVALUE);   
+        RUN;   
+        //PROC PRINT DATA = WORK.TOTAL_PORTSnap;title "TOTAL_PORTSnap  check for EQ02"; RUN;                                                                                                                                                                                                     
+        
+        DATA  WORK.TOTAL_PORTSnap; 
+        SET  WORK.TOTAL_PORTSnap;  
+        COLUMN MOC TYPE=FLOAT; 
+          MOC = TOTALVALUE/CAPITALINVESTED;
+        COLUMN FUND_CLASS3 TYPE=STRING; 
+          FUND_CLASS3 = 'Grand Total'; 
+        COLUMN SEQ TYPE=INTEGER; SEQ=1;
+        RUN; 
+        //PROC PRINT DATA = WORK.TOTAL_PORTSnap; RUN;   
+        
+        DATA  WORK.TOT_FUND_PORTSnap(KEEP = IRRNET OPERATIONDATE CURRENCY) ; 
+        SET  WORK.FUND_LIST1;   
+        RUN;
+                                                                                                                                                                                                            
+        DATA  WORK.TOT_LN_PORTSnap(KEEP = IRRNET REFERENCE_DATE CURRENCY) ; 
+        SET  WORK.DIRLOAN_LIST1;  
+        RUN;
+        //PROC PRINT DATA = WORK.DIRLOAN_LIST1;title "DIRLOAN_LIST1  check for EQ02"; RUN;                                                                                                                                                                                                     
+                                                                                                                                                                                                            
+        DATA WORK.TOT_EQ_PORTSnap(KEEP = IRRNET REFERENCE_DATE CURRENCY) ; 
+        SET WORK.DIREQUITY_LIST1;  
+        RUN;                                                                                                                                                                                                      
+        
+        DATA WORK.TOT_DIR_PORTSnap; 
+        SET WORK.TOT_LN_PORTSnap WORK.TOT_EQ_PORTSnap;  
+        RUN;                                                                                                                                                                                                    
+        
+        DATA  WORK.TOT_DIR_PORTSnap(RENAME = (REFERENCE_DATE=OPERATIONDATE));
+        SET  WORK.TOT_DIR_PORTSnap;                                                                                                                                                                                                          
+        RUN;
+        
+        DATA WORK.TOT_PORTSnap; 
+        SET WORK.TOT_FUND_PORTSnap WORK.TOT_DIR_PORTSnap;  
+        RUN; 
+        
+        DATA WORK.TOT_PORTSnap;
+          SET  WORK.TOT_PORTSnap; 
+          COLUMN FUND_CLASS3 TYPE=STRING; 
+            FUND_CLASS3 = 'Grand Total';
+          COLUMN SEQ TYPE=INTEGER; SEQ=1;
+        RUN;
+        //PROC PRINT DATA = WORK.TOT_PORTSnap; RUN;
+                
+        PROC MEANS DATA=WORK.TOT_PORTSnap  
+          OUT=WORK.TOT_PORTSnap_IRR;
+          VAR FUND_CLASS3;
+          VAR SEQ;
+          IRR IRRNET(NAME=IRRNET DATE=OPERATIONDATE);    
+        RUN;                                                                                                                                                                                                     
+        //PROC PRINT DATA = WORK.TOT_PORTSnap;title "TOT_PORTSnap  check for EQ02"; RUN;                                                                                                                                                                                                     
+        
+        DATA WORK.TOT_PORTSnap;
+        MERGE WORK.TOTAL_PORTSnap(IN=IN1) 
+              WORK.TOT_PORTSnap_IRR(IN=IN2);
+          BY FUND_CLASS3;
+          IF (IN1 AND IN2) THEN OUTPUT;
+          End;
+        RUN; 
+        //PROC PRINT DATA = WORK.TOT_PORTSnap; RUN; 
+
+        DATA WORK.FUND_PORTSnap;
+          SET WORK.FUND_PORTSnap 
+              WORK.FUND_PORTSnap_FundTot1;
+        RUN;
+        
+        DATA WORK.DIRECTS_PORTSnap;
+          SET  WORK.DIRECTS_PORTSnap WORK.DIRECTS_PORTSnap_Tot;
+        RUN;
+        
+        //------------ Rename Fund Names
+        // Rename Private Debt Fund to Private Debt Funds
+        DATA WORK.FUND_PORTSnap_Private_Debt_Fund;
+        SET  WORK.FUND_PORTSnap(Where FUND_CLASS3 = 'Private Debt Fund');
+        FUND_CLASS3 = 'Private Debt Funds';
+        RUN;
+        
+        // Rename Private Debt Fund to Private Debt Funds
+        DATA WORK.FUND_PORTSnap_Total_Funds;
+        SET  WORK.FUND_PORTSnap(Where FUND_CLASS3 = 'Total-Funds');
+        FUND_CLASS3 = 'Total - Funds';
+        RUN;
+        
+        // Rename Private Equity Fund to Private Equity Funds
+        DATA WORK.FUND_PORTSnap_Private_Equity_Fund;
+        SET  WORK.FUND_PORTSnap(Where FUND_CLASS3 = 'Private Equity Fund');
+        FUND_CLASS3 = 'Private Equity Funds';
+        RUN;
+        //------------ End Rename Fund Names
+        
+        //------------ Rename Direct Names
+        // Rename Direct Mezzanine to Direct Private Debt
+        DATA WORK.DIRECTS_PORTSnap_Direct_Private_Debt;
+        SET  WORK.DIRECTS_PORTSnap(Where FUND_CLASS3 = 'Direct Mezzanine');
+        FUND_CLASS3 = 'Direct Private Debt';
+        RUN;
+        
+        // Rename Private Debt Fund to Private Debt Funds
+        DATA WORK.DIRECTS_PORTSnapTotal_Directs;
+        SET  WORK.DIRECTS_PORTSnap(Where FUND_CLASS3 = 'Total-Directs');
+        FUND_CLASS3 = 'Total - Directs';
+        RUN;
+        
+        // Rename Direct Equity to Direct Private Equity
+        DATA WORK.DIRECTS_PORTSnap_Direct_Private_Equity;
+        SET  WORK.DIRECTS_PORTSnap(Where FUND_CLASS3 = 'Direct Equity');
+        FUND_CLASS3 = 'Direct Private Equity';
+        RUN;
+       //PROC PRINT DATA = WORK.DIRECTS_PORTSnap_Direct_Private_Equity;title "DIRECTS_PORTSnap_Direct_Private_Equity  check for EQ02"; RUN;                                                                                                                                                                                                     
+        //------------ End Rename Direct Names
+        
+        // Combine Fund and Direct rows
+        DATA WORK.FUND_PORTSnap;
+        SET  WORK.FUND_PORTSnap_Private_Debt_Fund 
+               WORK.FUND_PORTSnap_Private_Equity_Fund
+               Work.FUND_PORTSnap_Total_Funds
+               WORK.DIRECTS_PORTSnap_Direct_Private_Debt
+               WORK.DIRECTS_PORTSnap_Direct_Private_Equity
+               WORK.DIRECTS_PORTSnapTotal_Directs; 
+        RUN;
+        
+        // Add Grand Total row 
+        DATA Portfolio_Snapshot; 
+        SET WORK.FUND_PORTSnap 
+            //WORK.DIRECTS_PORTSnap 
+            WORK.TOT_PORTSnap;      // Grand Totals Cube
+        RUN;  
+       // PROC PRINT DATA = WORK.FUND_PORTSnap;title "FUND_PORTSnap from Tab 1"; RUN; 
+       // PROC PRINT DATA = WORK.TOT_PORTSnap;title "Grand TOT_PORTSnap from Tab 1"; RUN; 
+       // PROC PRINT DATA = Portfolio_Snapshot;title "Portfolio_Snapshot from Tab 1"; RUN;
+%end;
+/*------------------1. Portfolio Snapshot ----------------*/ 
+
+/*------------------2. Direct Mezz vs. Mezz Funds---------*/  
+//4;Private Debt Fund                                                                                                                                                                                                           
+%if %Code_SW = '0099'
+  or %Code_SW = '0003'
+   %then 
+        DATA WORK.FUND_MEZZ(DROP = CLOSEDATE ENDDATE); 
+        //SET WORK.FUND_LIST1(WHERE PORTFOLIO = 'PDE - Private Debt Funds');  
+        SET FUND_LIST1(WHERE Fund_Class3 = 'Private Debt Fund');  
+       // COLUMN TOTALVALUE TYPE=FLOAT; 
+       // TOTALVALUE= RETURNOFCAPITAL+ LASTVALUATION;                                                                                                                                                                                     
+        RUN;  
+        //PROC PRINT DATA = WORK.FUND_MEZZ; RUN;                                                                                                                                                                                                       
+        
+        DATA WORK.FUND_MEZZ;
+        SET  WORK.FUND_MEZZ; 
+        COLUMN FUND_DIRECTS TYPE=STRING; 
+        FUND_DIRECTS = 'Mezzanine Funds';
+        COLUMN DIFF TYPE=STRING; DIFF = 'Difference in Returns';                                                                                                                                                                                                        
+        RUN;     
+                                                                                                                                                                                                            
+        PROC MEANS DATA=WORK.FUND_MEZZ  OUT=WORK.FUND_MEZZ_IRR;
+        VAR FUND_DIRECTS;                                                                                                                                                                                                         
+        IRR IRRNET(NAME=IRRNET DATE=OPERATIONDATE);    
+        RUN;      
+        //PROC PRINT DATA = WORK.FUND_MEZZ;title "FUND_MEZZ --------"; RUN;                                                                                                                                                                                                              
+        
+        PROC MEANS DATA=WORK.FUND_MEZZ  OUT=WORK.FUND_MEZZ;                                        
+        //CLASS PORTFOLIO FUND_ID;
+        CLASS FUND_CLASS3 FUND_ID;
+        VAR FUND_DIRECTS;   
+        VAR DIFF;
+        VAR FACTIVESTATUS;                                                                                                                                                                                                         
+        MIN CURRENTCOST (NAME = BOOKVALUE);  
+        MIN CAPITALINVESTED (NAME = CAPITALINVESTED);
+        MIN RETURNOFCAPITAL (NAME = REALIZED);                                                                                                                                                                                                        
+        MIN LASTVALUATION (NAME = MARKETVALUE);
+        MIN TOTALVALUE (NAME = TOTALVALUE);                                                                                                                                                                                                        
+        RUN;                                                                                                                                                                                                    
+        //PROC PRINT DATA = WORK.FUND_MEZZ; RUN;                                                                                                                                                                                                              
+
+
+        PROC MEANS DATA=WORK.FUND_MEZZ  OUT=WORK.FUND_MEZZ;
+        VAR FUND_DIRECTS;  
+        VAR DIFF;  
+        N  FUND_ID (NAME = ITD_FUNDS);   
+        SUM FACTIVESTATUS(NAME = ACTIVESTATUS);                                                                                                                                                                                                        
+        SUM BOOKVALUE (NAME = BOOKVALUE);  
+        SUM CAPITALINVESTED (NAME = CAPITALINVESTED);
+        SUM REALIZED (NAME = REALIZED);                                                                                                                                                                                                        
+        SUM MARKETVALUE (NAME = MARKETVALUE);
+        SUM TOTALVALUE (NAME = TOTALVALUE);   
+        RUN;                                                                                                                                                                                                    
+        //PROC PRINT DATA = WORK.FUND_MEZZ; RUN;                                                                                                                                                                                                            
+                                                                                                                                                                                                                    
+        DATA WORK.FUND_MEZZ; 
+        SET WORK.FUND_MEZZ;  
+        COLUMN MOC TYPE=FLOAT; 
+        MOC = TOTALVALUE/CAPITALINVESTED;                                                                                                                                                                                     
+        RUN;    
+                                                                                                                                                                                                            
+        DATA WORK.FUND_MEZZ;
+        MERGE WORK.FUND_MEZZ(IN=IN1) WORK.FUND_MEZZ_IRR(IN=IN2);
+        BY FUND_DIRECTS;
+        If (IN1 and IN2) then Output;
+        End;
+        RUN;  
+        //PROC PRINT DATA = WORK.FUND_MEZZ; RUN;                                                                                                                                                                                                      
+        
+        /*-------------Direct Mezz --------------*/
+        DATA WORK.DIRLOAN_MEZZ; 
+          SET DIRLOAN_LIST1_QTR; // was WORK.DIRLOAN_LIST1;  
+       //   COLUMN TOTALVALUE TYPE=FLOAT; 
+       //   TOTALVALUE= EXIT + LASTVALUATION;                                                                                                                                                                                     
+        RUN; 
+
+        DATA WORK.DIRLOAN_MEZZ; 
+          SET WORK.DIRLOAN_MEZZ;   
+          if INSTR_STATUS = 'Active'
+             then CMPACTIVESTATUS = 1;
+            else 
+               CMPACTIVESTATUS = 0;
+          end;     
+        RUN; 
+       // PROC PRINT DATA = WORK.MEZZ_PORTSnap;title "MEZZ_PORTSnap checking for CMPACTIVESTATUS after my change"; RUN;  
+
+        DATA WORK.DIRLOAN_MEZZ;
+        SET  WORK.DIRLOAN_MEZZ; 
+        COLUMN FUND_DIRECTS TYPE=STRING; FUND_DIRECTS = 'Direct Mezzanine';
+        COLUMN DIFF TYPE=STRING;  DIFF = 'Difference in Returns';                                                                                                                                                                                                           
+        RUN;     
+                                                                                                                                                                                                            
+        PROC MEANS DATA=WORK.DIRLOAN_MEZZ  OUT=WORK.DIRLOAN_MEZZ_IRR;
+        VAR FUND_DIRECTS;  
+        IRR IRRNET(NAME=IRRNET DATE=REFERENCE_DATE); 
+        RUN;      
+                                                                                                                                                                                                            
+        PROC MEANS DATA=WORK.DIRLOAN_MEZZ  OUT=WORK.DIRLOAN_MEZZ_CNT;
+        CLASS COMPANY;                                                                                                                                                                                                         
+        VAR FUND_DIRECTS;                                                                                                                                                                                                         
+        MIN CMPACTIVESTATUS(NAME = CMPACTIVESTATUS);                                                                                                                                                                                                     
+        RUN;                                                                                                                                                                                         
+        //PROC PRINT DATA = WORK.DIRLOAN_MEZZ_CNT; RUN;  
+                                                                                                                                                                                                            
+        PROC MEANS DATA=WORK.DIRLOAN_MEZZ_CNT  OUT=WORK.DIRLOAN_MEZZ_CNT;
+        VAR FUND_DIRECTS;                                                                                                                                                                                                        
+        N  COMPANY(NAME = ITD_FUNDS);   
+        SUM CMPACTIVESTATUS(NAME = ACTIVESTATUS);                                                                                                                                                                                                     
+        RUN;                                                                                                                                                                                                           
+        //PROC PRINT DATA = WORK.DIRLOAN_MEZZ_CNT; RUN;  
+
+        //PROC PRINT DATA = WORK.DIRLOAN_MEZZ;title "WORK.DIRLOAN_MEZZ"; RUN;  
+
+        PROC MEANS DATA=WORK.DIRLOAN_MEZZ  OUT=WORK.DIRLOAN_MEZZ;                                        
+        CLASS SECURITY_COMPANY_ID;
+        VAR FUND_DIRECTS;  
+        VAR DIFF;                                                                                                                                                                                                        
+        MIN CURRENTCOST (NAME = BOOKVALUE);  
+        MIN INVESTMENT (NAME = CAPITALINVESTED);
+        MIN V_EXIT (NAME = REALIZED);                                                                                                                                                                                                        
+//        MIN EXIT (NAME = REALIZED);                                                                                                                                                                                                        
+        MIN LASTVALUATION (NAME = MARKETVALUE);
+        MIN TOTALVALUE (NAME = TOTALVALUE);                                                                                                                                                                                                        
+        RUN;                                                                                                                                                                                                    
+        
+        PROC MEANS DATA= WORK.DIRLOAN_MEZZ  OUT= WORK.DIRLOAN_MEZZ; 
+        VAR FUND_DIRECTS;    
+        VAR DIFF;                                                                                                                                                                                                        
+        SUM BOOKVALUE (NAME = BOOKVALUE);  
+        SUM CAPITALINVESTED (NAME = CAPITALINVESTED);
+        SUM REALIZED (NAME = REALIZED);                                                                                                                                                                                                        
+        SUM MARKETVALUE (NAME = MARKETVALUE);
+        SUM TOTALVALUE (NAME = TOTALVALUE);   
+        RUN;                                                                                                                                                                                                    
+        
+        DATA WORK.DIRLOAN_MEZZ; 
+        SET WORK.DIRLOAN_MEZZ;  
+        COLUMN MOC TYPE=FLOAT; 
+        MOC = TOTALVALUE/CAPITALINVESTED;
+        RUN;    
+                                                                                                                                                                                                            
+        DATA WORK.DIRLOAN_MEZZ;
+        MERGE WORK.DIRLOAN_MEZZ(IN=IN1) WORK.DIRLOAN_MEZZ_IRR(IN=IN2);
+        BY FUND_DIRECTS;
+        If (IN1 and IN2) then Output;
+        End;
+        RUN;   
+           
+        DATA WORK.DIRLOAN_MEZZ;
+        MERGE WORK.DIRLOAN_MEZZ(IN=IN1) WORK.DIRLOAN_MEZZ_CNT(IN=IN2);
+        BY FUND_DIRECTS;
+        IF (IN1 AND IN2) THEN OUTPUT;
+        END;
+        RUN; 
+        //PROC PRINT DATA=WORK.DIRLOAN_MEZZ;title 'DIRLOAN_MEZZ'; RUN;
+%end;
+/*------------------2. Direct Mezz vs. Mezz Funds---------*/ 
+
+
+/*------------------3. Direct Mezz+Equity vs. Mezz Funds--*/ 
+%if %Code_SW = '0099'
+   or %Code_SW = '0003'
+   %then 
+        DATA WORK.DIRLNEQ_MEZZ; 
+        SET DIRLNEQ_LIST1; //WORK.DIRLNEQ_LIST1;  
+       // COLUMN TOTALVALUE TYPE=FLOAT; 
+       // TOTALVALUE= EXIT + LASTVALUATION;                                                                                                                                                                                     
+        RUN; 
+                                                                                                                                                                                                            
+        DATA WORK.DIRLNEQ_MEZZ;
+          SET  WORK.DIRLNEQ_MEZZ; 
+          COLUMN FUND_DIRECTS TYPE=STRING; 
+          FUND_DIRECTS = 'Direct Mezzanine + Equity';
+          COLUMN DIFF TYPE=STRING; 
+          DIFF = 'Difference in Returns';                                                                                                                                                                                                           
+        RUN;     
+                                                                                                                                                                                                            
+        PROC MEANS DATA = WORK.DIRLNEQ_MEZZ  OUT = WORK.DIRLNEQ_MEZZ_IRR;
+          VAR FUND_DIRECTS;  
+          IRR IRRNET(NAME=IRRNET DATE=REFERENCE_DATE); 
+        RUN;      
+                                                                                                                                                                                                            
+        PROC MEANS DATA=WORK.DIRLNEQ_MEZZ  OUT=WORK.DIRLNEQ_MEZZ_CNT;
+          CLASS COMPANY;                                                                                                                                                                                                         
+          VAR FUND_DIRECTS;                                                                                                                                                                                                         
+          MIN CMPACTIVESTATUS(NAME = CMPACTIVESTATUS);                                                                                                                                                                                                     
+        RUN;                                                                                                                                                                                                    
+        //PROC PRINT DATA = WORK.DIRLOAN_MEZZ_CNT; RUN;  
+                                                                                                                                                                                                            
+        PROC MEANS DATA = WORK.DIRLNEQ_MEZZ_CNT  OUT = WORK.DIRLNEQ_MEZZ_CNT;
+          VAR FUND_DIRECTS;                                                                                                                                                                                                        
+          N  COMPANY(NAME = ITD_FUNDS);   
+          SUM CMPACTIVESTATUS(NAME = ACTIVESTATUS);                                                                                                                                                                                                     
+        RUN;                                                                                                                                                                                                           
+        //PROC PRINT DATA = WORK.DIRLOAN_MEZZ_CNT; RUN;  
+                                                                                                                                                                                                            
+        PROC MEANS DATA=WORK.DIRLNEQ_MEZZ  OUT=WORK.DIRLNEQ_MEZZ;                                        
+          CLASS SECURITY_COMPANY_ID;
+          VAR FUND_DIRECTS;  
+          VAR DIFF;                                                                                                                                                                                                        
+          MIN CURRENTCOST (NAME = BOOKVALUE);  
+          MIN INVESTMENT (NAME = CAPITALINVESTED);
+          MIN V_EXIT (NAME = REALIZED);                                                                                                                                                                                                        
+          MIN LASTVALUATION (NAME = MARKETVALUE);
+          MIN TOTALVALUE (NAME = TOTALVALUE);                                                                                                                                                                                                        
+        RUN;                                                                                                                                                                                                    
+        //PROC PRINT DATA = WORK.DIRLNEQ_MEZZ;title "DIRLNEQ_MEZZ"; RUN;   
+        
+        PROC MEANS DATA= WORK.DIRLNEQ_MEZZ  OUT= WORK.DIRLNEQ_MEZZ;   
+          VAR FUND_DIRECTS;    
+          VAR DIFF;                                                                                                                                                                                                        
+          SUM BOOKVALUE (NAME = BOOKVALUE);  
+          SUM CAPITALINVESTED (NAME = CAPITALINVESTED);
+          SUM REALIZED (NAME = REALIZED);                                                                                                                                                                                                        
+          SUM MARKETVALUE (NAME = MARKETVALUE);
+          SUM TOTALVALUE (NAME = TOTALVALUE);   
+        RUN;                                                                                                                                                                                                    
+        
+        DATA WORK.DIRLNEQ_MEZZ; 
+          SET WORK.DIRLNEQ_MEZZ;  
+          COLUMN MOC TYPE=FLOAT; 
+          MOC = TOTALVALUE/CAPITALINVESTED;
+        RUN;    
+                                                                                                                                                                                                            
+        DATA WORK.DIRLNEQ_MEZZ;
+          MERGE WORK.DIRLNEQ_MEZZ(IN=IN1) WORK.DIRLNEQ_MEZZ_IRR(IN=IN2);
+          BY FUND_DIRECTS ;
+          IF (IN1 AND IN2) THEN OUTPUT;
+          End;
+        RUN;   
+                                                                                                                                                                                                            
+        DATA WORK.DIRLNEQ_MEZZ;
+          MERGE WORK.DIRLNEQ_MEZZ(IN=IN1) WORK.DIRLNEQ_MEZZ_CNT(IN=IN2);
+          BY FUND_DIRECTS;
+          IF (IN1 AND IN2) THEN OUTPUT;
+          End;
+        RUN;        
+        //PROC PRINT DATA= WORK.DIRLNEQ_MEZZ; RUN;
+        
+        /*-------------Difference --------------*/ 
+        DATA WORK.DIRLNEQ_DIFF (KEEP = DIFF MOC IRRNET); 
+          SET WORK.DIRLNEQ_MEZZ;
+        RUN;                                                                                                                                                                                                         
+                                                                                                                                                                                                            
+        DATA WORK.FUND_MEZZ_DIFF (KEEP = DIFF MOC IRRNET); 
+          SET WORK.FUND_MEZZ;
+        RUN;                                                                                                                                                                                                         
+                                                                                                                                                                                                            
+        DATA WORK.FUND_MEZZ_DIFF (RENAME = (MOC=MOC_F IRRNET=IRRNET_F)); 
+          SET WORK.FUND_MEZZ_DIFF;
+        RUN;                                                                                                                                                                                                         
+                                                                                                                                                                                                          
+        DATA WORK.DIFF_LNEQ;
+          MERGE WORK.DIRLNEQ_DIFF(IN=IN2) WORK.FUND_MEZZ_DIFF(IN=IN1) ;
+          BY DIFF; 
+          IF (IN1 OR IN2) THEN OUTPUT;
+          End;                                                                                                                                                                                                        
+        RUN;                                                                                                                                                                                                    
+        
+        DATA WORK.DIFF_LNEQ(RENAME = (DIFF=FUND_DIRECTS));
+          SET WORK.DIFF_LNEQ;  
+          MOC = MOC-MOC_F;
+          IRRNET = IRRNET-IRRNET_F;                                                                                                                                                                                                       
+        RUN;                                                                                                                                                                                                         
+        
+        DATA WORK.DIFF_LNEQ(DROP = MOC_F IRRNET_F);
+          SET WORK.DIFF_LNEQ;  
+        RUN;                                                                                                                                                                                                         
+        //PROC PRINT DATA = WORK.DIFF_MEZZ; RUN;  
+        
+        
+        // Rename Direct Mezzanine + Equity Fund to Direct Private Debt & Equity
+        DATA work.DIRLNEQ_MEZZ_Direct_Private_Debt_Equity;
+          SET  WORK.DIRLNEQ_MEZZ(Where FUND_DIRECTS = 'Direct Mezzanine + Equity');
+          FUND_DIRECTS = 'Direct Private Debt & Equity';
+        RUN;
+        
+        // Rename Mezzanine Funds to Debt Funds
+        DATA WORK.FUND_MEZZ_Debt_Funds;
+          SET  WORK.FUND_MEZZ(Where FUND_DIRECTS = 'Mezzanine Funds');
+          FUND_DIRECTS = 'Private Debt Funds'; //was Debt Funds
+        RUN;
+        
+        // Combine rows
+        DATA LNEQ_DIRvsFUND;
+          SET  WORK.FUND_MEZZ_Debt_Funds 
+               WORK.DIRLNEQ_MEZZ_Direct_Private_Debt_Equity 
+               WORK.DIFF_LNEQ;
+        RUN;
+        //DATA LNEQ_DIRvsFUND; 
+        //SET WORK.DIRLNEQ_MEZZ WORK.FUND_MEZZ WORK.DIFF_LNEQ;  
+        //RUN;  
+        //PROC PRINT DATA = LNEQ_DIRvsFUND;title 'LNEQ_DIRvsFUND'; RUN;  
+
+/*------------------3. Direct Mezz+Equity vs. Mezz Funds--*/
+
+        /*-------------Difference --------------*/ 
+        DATA WORK.DIR_MEZZ_DIFF (KEEP = DIFF MOC IRRNET); 
+        SET WORK.DIRLOAN_MEZZ;
+        RUN;                                                                                                                                                                                                         
+                                                                                                                                                                                                 
+        DATA WORK.DIFF_MEZZ;
+        MERGE WORK.DIR_MEZZ_DIFF(IN=IN2) WORK.FUND_MEZZ_DIFF(IN=IN1) ;
+        BY DIFF; 
+        IF (IN1 OR IN2) THEN OUTPUT;
+        End;                                                                                                                                                                                                        
+        RUN;                                                                                                                                                                                                    
+        
+        DATA WORK.DIFF_MEZZ (RENAME = (DIFF=FUND_DIRECTS));
+        SET WORK.DIFF_MEZZ;  
+        MOC = MOC-MOC_F;
+        IRRNET = IRRNET-IRRNET_F;                                                                                                                                                                                                       
+        RUN;                                                                                                                                                                                                         
+        
+        DATA WORK.DIFF_MEZZ (DROP = MOC_F IRRNET_F);
+        SET WORK.DIFF_MEZZ;  
+        RUN;                                                                                                                                                                                                         
+        //PROC PRINT DATA = WORK.DIFF_MEZZ; RUN;  
+                                                                                                                                                                                                                      
+        // Rename Direct Mezzanine to Direct Private Debt
+        DATA WORK.DIRLOAN_MEZZ_Debt_Funds;
+          SET  WORK.DIRLOAN_MEZZ(Where FUND_DIRECTS = 'Direct Mezzanine');
+          FUND_DIRECTS = 'Direct Private Debt';
+        RUN;
+        
+        // Rename Mezzanine Funds to Debt Funds
+        DATA WORK.FUND_MEZZ_Direct_Private_Debt;
+          SET  WORK.FUND_MEZZ(Where FUND_DIRECTS = 'Mezzanine Funds');
+          FUND_DIRECTS = 'Private Debt Funds'; //was Debt Funds
+        RUN;
+        
+        // Combine rows
+        DATA MEZZ_DIRvsFUND;
+          SET  WORK.FUND_MEZZ_Direct_Private_Debt  WORK.DIRLOAN_MEZZ_Debt_Funds WORK.DIFF_MEZZ;
+        RUN;
+        //PROC PRINT DATA =  MEZZ_DIRvsFUND;title 'MEZZ_DIRvsFUND--'; RUN;
+%end;
+/*------------------3. Direct Mezz+Equity vs. Mezz Funds--*/
+
+
+/*------------------8. Commitments & Investments ---------*/
+
+%if %Code_SW = '0099'
+   %then 
+        DATA WORK.COMMITMENT_PY(KEEP = FUND_ID INVESTORNAME FUNDNAME FUND_CLASS3 CURRENCY) ;
+        SET WORK.FUNDMAST(WHERE CLOSEDATE<=DATEADD("YEAR", -1, %DATE) AND COMMITMENT_YEAR = YEAR(%DATE)-1);
+        RUN; 
+        //PROC PRINT DATA = WORK.COMMITMENT_PY; RUN;
+        
+        //%LET DATE = YEARENDDATE(DATEADD("YEAR", -1, %DATE));
+        %LET DATE = DATEADD("YEAR", -1, %DATE);
+        
+        DATA WORK.CE_COMM_PY(KEEP = FUND_ID INVESTORNAME COMMITMENT);
+        SET FCE.FUNDINVESTORPOSITIONS (WHERE POSITION_DATE = %DATE) ;
+        RUN;
+        
+        DATA WORK.COMMITMENT_PY;
+        MERGE WORK.COMMITMENT_PY(IN=IN1) WORK.CE_COMM_PY(IN=IN2);
+        BY FUND_ID INVESTORNAME;
+        If (IN1 and IN2) then Output;
+        End;
+        RUN;  
+        
+        PROC MEANS DATA= WORK.COMMITMENT_PY  OUT=COMMITMENT_PY;  
+        CLASS FUND_ID;
+        VAR FUNDNAME;
+        VAR FUND_CLASS3;    
+        VAR CURRENCY;                                                                                                                                                                                                        
+        SUM COMMITMENT (NAME = COMMITMENT);  
+        RUN;
+        //PROC PRINT DATA = COMMITMENT_PY; RUN;
+        
+        %LET DATE = %ORIG_DATE;
+        //PROC PRINT; PUT %DATE; RUN;
+        
+        DATA WORK.COMMITMENT_CY(KEEP = FUND_ID INVESTORNAME FUNDNAME FUND_CLASS3 CURRENCY);
+        SET WORK.FUNDMAST(WHERE COMMITMENT_YEAR = YEAR(%DATE));
+        RUN; 
+        //PROC PRINT DATA = WORK.COMMITMENT_CY; RUN;
+        
+        DATA WORK.CE_COMM_CY(KEEP = FUND_ID INVESTORNAME COMMITMENT);
+        SET FCE.FUNDINVESTORPOSITIONS (WHERE POSITION_DATE = %DATE) ;
+        RUN;
+        
+        DATA WORK.COMMITMENT_CY;
+        MERGE WORK.COMMITMENT_CY(IN=IN1) WORK.CE_COMM_CY(IN=IN2);
+        BY FUND_ID INVESTORNAME;
+        If (IN1 and IN2) then Output;
+        End;
+        RUN;  
+        
+        PROC MEANS DATA= WORK.COMMITMENT_CY  OUT=COMMITMENT_CY;  
+        CLASS FUND_ID;
+        VAR FUNDNAME;
+        VAR FUND_CLASS3;    
+        VAR CURRENCY;                                                                                                                                                                                                        
+        SUM COMMITMENT (NAME = COMMITMENT);  
+        RUN;
+        //PROC PRINT DATA = COMMITMENT_CY; RUN;
+        
+        /*----Investments------*/      
+        DATA WORK.DIRDIST(KEEP = COMPANY_NAME SECURITY_COMPANY_ID SECURITY_NAME REFERENCE_DATE CASH2 INVEST_YEAR CONTRIBUTE DISTRIBUTE INVEST_TYPE);
+        SET DCE.FV_T_PORTCO_TRANSACTIONS(WHERE REFERENCE_DATE<= %DATE AND TRANSACTION_TYPE<>'LN05' AND TRANSACTION_TYPE<>'LN07' AND TRANSACTION_TYPE<>'EQ06' AND CASH2 IS NOT NULL AND CASH2 <>0);
+        COLUMN INVEST_YEAR TYPE=STRING; INVEST_YEAR = YEAR(REFERENCE_DATE);
+        COLUMN CONTRIBUTE TYPE=FLOAT; IF CASH2<=0 THEN CONTRIBUTE=CASH2*(-1); END;  
+        COLUMN DISTRIBUTE TYPE=FLOAT; IF CASH2>0 THEN  DISTRIBUTE=CASH2; END;
+        COLUMN INVEST_TYPE TYPE=STRING; INVEST_TYPE='Directs';
+        RUN;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
+        //PROC PRINT DATA = WORK.DIRDIST; RUN;
+        
+        DATA WORK.DIRECTSLIST;
+        SET  WORK.DIRLOAN_LIST WORK.DIREQUITY_LIST;
+        RUN; 
+        //PROC PRINT DATA=WORK.DIRECTSLIST; RUN;
+        
+        DATA WORK.DIRDIST;
+        MERGE WORK.DIRECTSLIST(IN=IN1) WORK.DIRDIST(IN=IN2);
+        BY SECURITY_COMPANY_ID;
+        IF (IN1 AND IN2) THEN OUTPUT;
+        END;
+        RUN;
+        
+        PROC MEANS DATA =WORK.DIRDIST(WHERE REFERENCE_DATE<= DATEADD("YEAR", -1, %DATE) AND INVEST_YEAR = YEAR(%DATE) - 1 AND CONTRIBUTE IS NOT NULL AND CONTRIBUTE>0) OUT=WORK.INVESTMENT_PY;
+        CLASS SECURITY_COMPANY_ID; 
+        VAR SECURITY; 
+        VAR COMPANY_NAME;
+        VAR CURRENCY;
+        //VAR OP_YEAR;
+        SUM CONTRIBUTE(NAME=InvestedCapital);
+        RUN;
+        
+        DATA INVESTMENT_PY;
+        SET WORK.INVESTMENT_PY;
+        RUN;
+        /*
+        DATA WORK.TEST;
+        SET WORK.DIRDIST(WHERE INVEST_YEAR = YEAR(%DATE) AND CONTRIBUTE IS NOT NULL AND CONTRIBUTE>0);
+        RUN;
+        PROC PRINT DATA=WORK.TEST; RUN;
+        */
+        PROC MEANS DATA =WORK.DIRDIST(WHERE INVEST_YEAR = YEAR(%DATE) AND CONTRIBUTE IS NOT NULL AND CONTRIBUTE>0) OUT=WORK.INVESTMENT_CY;
+        CLASS SECURITY_COMPANY_ID; 
+        VAR SECURITY; 
+        VAR COMPANY_NAME;
+        VAR CURRENCY;
+        //VAR OP_YEAR;
+        SUM CONTRIBUTE(NAME=InvestedCapital);
+        RUN;
+        
+        DATA INVESTMENT_CY;
+        SET WORK.INVESTMENT_CY;
+        RUN;
+%end;
+/*------------------8. Commitments & Investments ---------*/
+
+
+/*------------------9. Directs Contibution Graph----------*/ 
+%if %Code_SW = '0099'
+   %then 
+        PROC MEANS DATA=WORK.DIRDIST OUT=DIR_CASHFLOW;                                        
+        CLASS CURRENCY INVEST_YEAR;
+        VAR INVEST_TYPE;
+        SUM CONTRIBUTE (NAME = CASH_INVESTED); 
+        SUM DISTRIBUTE (NAME = CASH_RETURNED); 
+        RUN; 
+        //PROC PRINT DATA =DIR_CASHFLOW; RUN;
+%end;
+/*------------------9. Directs Contibution Graph----------*/ 
+
+
+/*-----------------11. Contributions and Distributions----*/
+%if %Code_SW = '0099'
+   %then 
+        PROC MEANS DATA=WORK.FUND_CF_YEAR OUT=FUND_CASHFLOW;  // FUND_CF_YEAR gets created from TAB 7 
+        CLASS CURRENCY INVEST_YEAR; 
+        VAR INVEST_TYPE;
+        SUM CAPITALINVESTED(NAME = CASH_INVESTED);
+        SUM RETURNOFCAPITAL(NAME = CASH_RETURNED);
+        RUN; 
+        
+        DATA WORK.ALLPORT_CASHFLOW;
+        SET DIR_CASHFLOW FUND_CASHFLOW;                       // Dir_CashFlow is created in TAB 8 using (DCE.FV_T_PORTCO_TRANSACTIONS) to populate
+        RUN;
+        
+        PROC MEANS DATA=WORK.ALLPORT_CASHFLOW OUT=WORK.ALLPORT_CASHFLOW;
+        CLASS CURRENCY INVEST_YEAR INVEST_TYPE  ;
+        //VAR INV_TYPE;
+        SUM CASH_INVESTED(NAME = CASH_INVESTED);
+        SUM CASH_RETURNED(NAME = CASH_RETURNED);
+        RUN; 
+        
+        DATA ALLPORT_CASHFLOW;
+        SET WORK.ALLPORT_CASHFLOW;
+        RUN;
+        //PROC PRINT DATA = ALLPORT_CASHFLOW; RUN;
+%end;
+/*-----------------11. Contributions and Distributions----*/
+  
+  
+/*-----------------10. YTD Production vs. Prior Year------*/  
+%if %Code_SW = '0099'
+   %then 
+        DATA WORK.DIRECTS_YTD_PY;
+        SET WORK.INVESTMENT_PY;
+        COLUMN CATEGORY TYPE=STRING; CATEGORY = 'Direct Private Debt & Equity';
+        RUN;
+        
+        PROC MEANS DATA= WORK.DIRECTS_YTD_PY  OUT=WORK.DIRECTS_YTD_PY;  
+        CLASS CATEGORY CURRENCY;
+        SUM InvestedCapital (NAME = PYTD_CALLED);  
+        RUN;
+        //PROC PRINT DATA=WORK.DIRECTS_YTD_PY; RUN;
+        
+        DATA WORK.DIRECTS_YTD_CY;
+        SET WORK.INVESTMENT_CY;
+        COLUMN CATEGORY TYPE=STRING; CATEGORY = 'Direct Private Debt & Equity';
+        RUN;
+        
+        PROC MEANS DATA= WORK.DIRECTS_YTD_CY  OUT=WORK.DIRECTS_YTD_CY;  
+        CLASS CATEGORY CURRENCY;
+        SUM InvestedCapital (NAME = YTD_CALLED);  
+        RUN;
+        //PROC PRINT DATA=WORK.DIRECTS_YTD_CY; RUN;
+        
+        DATA WORK.DIRECTS_YTD;
+        MERGE WORK.DIRECTS_YTD_CY(IN=IN1) WORK.DIRECTS_YTD_PY(IN=IN2);
+        BY CATEGORY CURRENCY;
+        IF (IN1 OR IN2) THEN OUTPUT;
+        END;
+        RUN;
+        
+        DATA WORK.COMMIT_YTD_PY;
+        SET WORK.COMMITMENT_PY;
+        COLUMN CATEGORY TYPE=STRING; CATEGORY = 'Funds - Commitments';
+        RUN;
+        
+        PROC MEANS DATA= WORK.COMMIT_YTD_PY  OUT=WORK.COMMIT_YTD_PY;  
+        CLASS CATEGORY CURRENCY;
+        SUM COMMITMENT (NAME = PYTD_CALLED);  
+        RUN;
+        
+        DATA WORK.COMMIT_YTD_CY;
+        SET WORK.COMMITMENT_CY;
+        COLUMN CATEGORY TYPE=STRING; CATEGORY = 'Funds - Commitments';
+        RUN;
+        
+        PROC MEANS DATA= WORK.COMMIT_YTD_CY  OUT=WORK.COMMIT_YTD_CY;  
+        CLASS CATEGORY CURRENCY;
+        SUM COMMITMENT (NAME = YTD_CALLED);  
+        RUN;
+        
+        DATA WORK.COMMIT_YTD;
+        MERGE WORK.COMMIT_YTD_CY(IN=IN1) WORK.COMMIT_YTD_PY(IN=IN2);
+        BY CATEGORY CURRENCY;
+        IF (IN1 OR IN2) THEN OUTPUT;
+        END;
+        RUN;
+        
+        DATA WORK.CAPINV_YTD_PY;
+        SET WORK.FUND_CF_YEAR(WHERE CLOSEDATE<=DATEADD("YEAR", -1, %DATE) AND INVEST_YEAR = YEAR(%DATE)-1);
+        COLUMN CATEGORY TYPE=STRING; CATEGORY = 'Funds - Capital Invested';
+        RUN;
+        
+        PROC MEANS DATA= WORK.CAPINV_YTD_PY  OUT=WORK.CAPINV_YTD_PY;  
+        CLASS CATEGORY CURRENCY;
+        SUM CAPITALINVESTED(NAME = PYTD_CALLED);  
+        RUN;
+        //PROC PRINT DATA=WORK.CAPINV_YTD_PY; RUN;
+        
+        DATA WORK.CAPINV_YTD_CY;
+        SET WORK.FUND_CF_YEAR(WHERE CLOSEDATE<= %DATE AND INVEST_YEAR = YEAR(%DATE));
+        COLUMN CATEGORY TYPE=STRING; CATEGORY = 'Funds - Capital Invested';
+        RUN;
+        //PROC PRINT DATA= WORK.FUND_CF_YEAR; RUN;
+        //PROC PRINT DATA=WORK.CAPINV_YTD_CY; RUN;
+        
+        PROC MEANS DATA= WORK.CAPINV_YTD_CY  OUT=WORK.CAPINV_YTD_CY;  
+        CLASS CATEGORY CURRENCY;
+        SUM CAPITALINVESTED(NAME = YTD_CALLED);  
+        RUN;
+        
+        DATA WORK.CAPINV_YTD;
+        MERGE WORK.CAPINV_YTD_CY(IN=IN1) WORK.CAPINV_YTD_PY(IN=IN2);
+        BY CATEGORY CURRENCY;
+        IF (IN1 OR IN2) THEN OUTPUT;
+        END;
+        RUN;
+        
+        DATA YTD_PRODvsPLAN;   
+        SET WORK.DIRECTS_YTD WORK.COMMIT_YTD WORK.CAPINV_YTD;   
+        RUN;
+        //PROC PRINT DATA=YTD_PRODvsPLAN; RUN;
+%end;
+/*-----------------10. YTD Production vs. Prior Year------*/ 
+    
+    
+/*-----------------12. Book Value and Market Value--------*/ 
+
+%if %Code_SW = '0099'
+   %then 
+        DATA WORK.DIRECTMAST;
+        SET  WORK.INVSTINS  WORK.INVSTINS_EQ;
+        RUN;
+        
+        %LET DATE = "31122011"d; 
+        
+        %IF ( %DATE <= %ORIG_DATE) OR  (%DATE > %ORIG_DATE AND YEAR(%DATE)=YEAR(%ORIG_DATE))  %THEN 
+            %IF (%DATE > %ORIG_DATE) %THEN %LET DATE=%ORIG_DATE; %END;
+        
+        PROC FAQUERY Query="IT Admin - Program Queries\Positions-PortRev" (DATE=%DATE); TABLE "Default"  OUT=WORK.FUND11; RUN;
+        
+        DATA WORK.FUND11; 
+        SET WORK.FUND11(WHERE (GAAP_BOOK_VALUE IS NOT NULL AND GAAP_BOOK_VALUE<>0)OR (GL_COST_ELIM IS NOT NULL AND GL_COST_ELIM<>0) OR (LASTVALUATION IS NOT NULL AND LASTVALUATION<>0));
+         COLUMN CURRENTCOST  TYPE=DOUBLE;  CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM;
+         COLUMN INVEST_YEAR TYPE=STRING; INVEST_YEAR = YEAR(%DATE);
+        RUN;
+        
+        DATA WORK.FUNDBKMK(DROP= GAAP_BOOK_VALUE GL_COST_ELIM); SET  WORK.FUND11; RUN;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+        DATA WORK.DIR11 (KEEP = COMPANY_NAME SECURITY_ID POSITION_DATE INVEST_YEAR CURRENTCOST);
+        SET DCE.REFINSTRUMENTPOSITIONS (WHERE POSITION_DATE=%DATE AND LENGTH(COMPANY_NAME)>0 AND (CURRENTCOST IS NOT NULL OR LASTVALUATION IS NOT NULL )  );
+        COLUMN INVEST_YEAR TYPE=STRING; INVEST_YEAR = YEAR(POSITION_DATE);                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+        RUN;
+        
+        DATA WORK.DIR11;
+        MERGE WORK.DIRECTMAST(IN=IN1) WORK.DIR11(IN=IN2); 
+        BY SECURITY_ID;
+        IF (IN1 AND IN2) THEN OUTPUT; 
+        END; 
+        RUN;
+        
+        DATA WORK.FUND11(DROP = LASTVALUATION); SET WORK.FUND11; RUN;
+        
+        DATA WORK.DIR11;
+        MERGE WORK.DIR11(IN=IN1) WORK.FUND11;
+        BY FUND  ;
+        IF (IN1) THEN OUTPUT;
+        End;
+        RUN; 
+        
+        DATA WORK.DIR11(DROP=FUND_ID FUND INVESTORNAME GAAP_BOOK_VALUE GL_COST_ELIM);
+        SET WORK.DIR11;
+             IF LP_TYPE = 'Fund' THEN CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM; END;
+        RUN;
+        
+        DATA WORK.DIRBKMK; SET WORK.DIR11; RUN;
+        %END;
+        //--------------------------------------------------------
+        
+        %Let Year_cnt = YEAR(%ORIG_DATE) - 2011;
+        %For %I=1 %to %Year_cnt
+        //   PROC PRINT; PUT %Year_cnt; RUN;
+        //   PROC PRINT; PUT %I; RUN;
+           %Let X_DATE_YEAR = DATEADD("YEAR",1,%DATE); //, "d/m/yyyy");
+           %let DATE = %X_DATE_YEAR;
+            PROC FAQUERY Query="IT Admin - Program Queries\Positions-PortRev" (DATE=%DATE); TABLE "Default"  OUT=WORK.FUNDGraph; RUN;    
+            DATA WORK.FundGraph; 
+              SET WORK.FundGraph(WHERE (GAAP_BOOK_VALUE IS NOT NULL 
+                                          AND GAAP_BOOK_VALUE <> 0)
+                                   OR (GL_COST_ELIM IS NOT NULL 
+                                        AND GL_COST_ELIM <> 0) 
+                                   OR (LASTVALUATION IS NOT NULL 
+                                        AND LASTVALUATION <> 0));
+              COLUMN CURRENTCOST  TYPE=DOUBLE;  CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM;
+              COLUMN INVEST_YEAR TYPE=STRING; INVEST_YEAR = YEAR(%DATE);
+            RUN;
+            DATA WORK.FUNDBKMK(DROP= GAAP_BOOK_VALUE GL_COST_ELIM); 
+              SET WORK.FUNDBKMK WORK.FundGraph; 
+            RUN;
+            DATA WORK.DIRGraph (KEEP = COMPANY_NAME SECURITY_ID POSITION_DATE INVEST_YEAR CURRENTCOST LASTVALUATION);
+               SET DCE.REFINSTRUMENTPOSITIONS (WHERE POSITION_DATE = %DATE 
+                                                 AND LENGTH(COMPANY_NAME) > 0 
+                                                 AND (CURRENTCOST IS NOT NULL 
+                                                      OR LASTVALUATION IS NOT NULL));
+               COLUMN INVEST_YEAR TYPE=STRING; INVEST_YEAR = YEAR(POSITION_DATE);                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+            RUN;    
+            DATA WORK.DIRGraph;
+              MERGE WORK.DIRECTMAST(IN=IN1) WORK.DIRGraph(IN=IN2); 
+              BY SECURITY_ID;
+              IF (IN1 AND IN2) THEN OUTPUT; 
+              END; 
+            RUN;    
+            DATA WORK.FUNDGraph(DROP = LASTVALUATION); 
+              SET WORK.FUNDGraph; 
+            RUN;
+            DATA WORK.DIRGraph;
+              MERGE WORK.DIRGraph(IN=IN1) WORK.FUNDGraph;
+              BY FUND  ;
+              IF (IN1) THEN OUTPUT;
+              End;
+            RUN; 
+            DATA WORK.DIRGraph(DROP=FUND_ID FUND INVESTORNAME GAAP_BOOK_VALUE GL_COST_ELIM);
+              SET WORK.DIRGraph;
+              IF LP_TYPE = 'Fund' 
+                THEN CURRENTCOST = GAAP_BOOK_VALUE + GL_COST_ELIM; 
+              END;
+            RUN;
+            DATA WORK.DIRBKMK; 
+              SET WORK.DIRBKMK WORK.DIRGraph; 
+            RUN; 
+        %NEXT;
+        //PROC PRINT DATA=WORK.DIRBKMK; RUN;
+        //RUN;
+        
+        //--------------------------------------------------------
+        
+        
+        DATA WORK.FUNDBKMK;
+        SET WORK.FUNDBKMK;
+        COLUMN INVEST_TYPE TYPE=STRING; INVEST_TYPE = 'Funds';
+        RUN;
+         
+        DATA WORK.FUNDBKMK;
+        MERGE WORK.FUNDMAST(IN=IN1) WORK.FUNDBKMK(IN=IN2); 
+        By FUND_ID INVESTORNAME;
+        IF (IN1 AND IN2) THEN OUTPUT; END; RUN;  
+        
+        PROC MEANS DATA=WORK.FUNDBKMK OUT=WORK.FUNDBKMK;                                        
+        CLASS CURRENCY INVEST_YEAR ;
+        VAR INVEST_TYPE;
+        SUM CURRENTCOST (NAME = CURRENTCOST);  
+        SUM LASTVALUATION (NAME = LASTVALUATION);
+        RUN;
+        //PROC PRINT DATA =WORK.FUNDBKMK; RUN;
+        
+        DATA WORK.DIRBKMK;
+        SET WORK.DIRBKMK;
+        COLUMN INVEST_TYPE TYPE=STRING; INVEST_TYPE = 'Directs';
+        RUN;
+        
+        PROC MEANS DATA=WORK.DIRBKMK OUT=WORK.DIRBKMK;                                        
+        //CLASS FUND_ID VAL_YEAR;    
+        CLASS CURRENCY INVEST_YEAR ;
+        VAR INVEST_TYPE;
+        SUM CURRENTCOST (NAME = CURRENTCOST);  
+        SUM LASTVALUATION (NAME = LASTVALUATION);
+        RUN;
+        
+        //PROC PRINT DATA=WORK.DIRBKMK; RUN;
+        
+        DATA WORK.ALLBKMK; SET  WORK.FUNDBKMK WORK.DIRBKMK; RUN;
+        
+        PROC MEANS DATA = WORK.ALLBKMK OUT=WORK.ALLBKMK;
+        CLASS CURRENCY INVEST_YEAR INVEST_TYPE ;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
+        SUM CURRENTCOST(NAME=BOOK_VALUE); 
+        SUM LASTVALUATION(NAME=MARKET_VALUE);
+        RUN;
+        
+        DATA BOOKandMARKET;
+        MERGE WORK.ALLBKMK(IN=IN1) WORK.ALLPORT_CASHFLOW(IN=IN2); 
+        BY CURRENCY INVEST_YEAR INVEST_TYPE ;
+        IF (IN1 AND IN2) THEN OUTPUT; END; RUN; 
+        //PROC PRINT DATA=BOOKandMARKET; RUN;
+%end;
+/*-----------------12. Book Value and Market Value--------*/   
+
+
+
+
+
+
+
+
+

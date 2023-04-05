@@ -1,0 +1,92 @@
+LIBNAME USER ".";
+
+%DEFINE REPORT_DATE;
+%DEFINE CALCULATE_IRR;
+
+%PARAM DATE LABEL="As of Date" TYPE=DATE DEFAULT=TODAY NOTNULL;
+%LET DATE=%DATE;
+
+/*------------------3. Direct Mezz by Vintage-------------------*/ 
+                                                                                                                                                                                    
+DATA WORK.ALMEZZ;
+    SQL "SELECT MIN(INVINS.ACCOUNTINS) INVINS_ACCOUNTINS,
+        SUM(A.PRINCIPAL2*(-1)) INVESTMENT, DATEPART(YYYY,MIN(A.CLOSEDATE)) INV_YEAR,
+    MIN(VCPRT.PORTFOLIO) as PORTFOLIO, MIN (A.CURRENCY6) INST_CURR, MIN(SFA.NAME) AS SPONSOR,
+(case  when MIN(SFASTAT.DESCR) not like 'Exited Portfolio Co.%' then  '1' else '0' end ) as 'CMPACTIVESTATUS',
+MIN(SFA_CMP.NAME) COMPANY,
+MIN(SFA_CMP.CREATIONDATE) CREATIONDATE ,
+    MIN(RATE.BASERATE) COUPON ,
+    MIN(RATEPIK.BASERATE) PIK                                                                                                                                                                                          
+    FROM VCINVESTMENTINS INVINS 
+        JOIN VCINVESTMENT VCINV ON VCINV.IQID = INVINS.INVESTMENT
+        LEFT JOIN VCPROJECT VCP ON  VCP.ACCOUNT = VCINV.ACCOUNT AND VCP.WORKFLOW =
+                                (SELECT IQID FROM ADMWORKFLOW WHERE LIBELLE IN ('RGA Direct Mezzanine'))
+        LEFT JOIN SFAACCOUNT SFA ON SFA.IQID = VCP.USERTEXT7  
+        LEFT JOIN SFAACCOUNT SFA_CMP ON SFA_CMP.IQID = VCINV.ACCOUNT                                                                                                                                                                                            
+        LEFT JOIN SFAACCTSTAT SFASTAT ON SFA_CMP.STATUS = SFASTAT.CODE  AND  SFASTAT.FILTER NOT LIKE '000%' 
+     LEFT JOIN VCINVESTINSRATE RATE ON RATE.INVESTMENTINS =  INVINS.ACCOUNTINS AND RATE.FIRSTDATE<= " & %DATE & " 
+    AND RATE.LASTDATE>= " & %DATE & " AND RATE.KIND = (SELECT CODE FROM VCINVINSRATKIND WHERE DESCR IN ('Loan Cash Interests')  ) 
+LEFT JOIN VCINVESTINSRATE RATEPIK ON RATEPIK.INVESTMENTINS =  INVINS.ACCOUNTINS AND RATEPIK.FIRSTDATE<= " & %DATE & " 
+     AND RATEPIK.LASTDATE>= " & %DATE & " AND RATEPIK.KIND = (SELECT CODE FROM VCINVINSRATKIND WHERE DESCR IN ('Loan Capitalized Interests')  )                                                                                                                                                                                                 
+    JOIN VCPORTFOLIOASSET VCPRTAST ON VCPRTAST.INVESTMENT = VCINV.IQID  
+    JOIN VCPORTFOLIO VCPRT ON VCPRT.IQID = VCPRTAST.PORTFOLIO AND VCPRT.PORTFOLIO IN ('PDE - Direct Mezzanine')
+    JOIN VCINVESTMENTOP A  ON A.INVESTMENTINS=INVINS.IQID 
+    JOIN VCINVESTOPTYPE OPT ON OPT.CODE = A.TYPEINVESTOP AND OPT.DESCR like 'LN - Funding (w/o commitment)%' 
+    JOIN ADMROLE REG ON VCINV.IQREGIONID = REG.IQID AND A.IQREGIONID = REG.IQID AND REG.NAME IN ('Private Debt & Equity')
+    WHERE  A.IQDELETED=0 AND A.CLOSEDATE <=  " & %DATE & " AND ??FILTER
+        GROUP BY  INVINS.ACCOUNTINS        " ;
+    
+    COLUMN SECURITY_ID;     
+RUN;
+//PROC PRINT DATA =  WORK.INVSTINS; RUN; 
+                                                                                                                                                                                                    
+PROC FAQUERY QUERY="IT Admin - Program Queries\Rating"; TABLE "Default" OUT=WORK.ALRATING; RUN;
+//PROC PRINT DATA=WORK.RATING; RUN; 
+
+DATA WORK.ALRATING(KEEP = SECURITY_ID RATING);
+SET WORK.ALRATING (WHERE FROM <= %DATE AND TO >= %DATE );
+RUN;                                                                                                                                                                                                    
+                                                                                                                                                                                                    
+DATA WORK.ALMEZZ;
+MERGE WORK.ALMEZZ WORK.ALRATING;                                                                                                                                                                                                        
+BY SECURITY_ID;
+RUN;
+                                                                                                                                                                                                    
+//PROC PRINT DATA =  WORK.INVSTINS; RUN; 
+                                                                                                                                                                                                    
+DATA WORK.ALINSTRPOS_LN (KEEP = POSITION_DATE COMPANY_NAME SECURITY_NAME EXIT CURRENTCOST PRINCIPAL LASTVALUATION SECURITY_ID );
+SET DCE.REFINSTRUMENTPOSITIONS (WHERE POSITION_DATE=%DATE AND SECURITY_CLASS_NAME ="LOANS" AND LENGTH(COMPANY_NAME)>0 );
+RUN;
+
+DATA WORK.ALMEZZ(KEEP = COMPANY SECURITY_NAME PRINCIPAL COUPON PIK RATING SPONSOR);
+MERGE WORK.ALMEZZ(IN=IN1) WORK.ALINSTRPOS_LN(IN=IN2);
+BY SECURITY_ID;
+If (IN1 and IN2) then Output;
+End;
+RUN; 
+
+PROC SORT DATA = WORK.ALMEZZ OUT = WORK.ALMEZZ;
+BY COMPANY SECURITY_NAME PRINCIPAL COUPON PIK RATING SPONSOR;
+RUN;                        
+                        
+PROC PRINT DATA = WORK.ALMEZZ; 
+VAR COMPANY (STYLE(COLHEADER)=(WIDTH="250" ALIGN=LEFT))
+SECURITY_NAME 
+PRINCIPAL (STYLE(COLHEADER)=(WIDTH="150" ALIGN=RIGHT ) FORMAT = "#,###.00")
+COUPON (STYLE(COLHEADER)=(WIDTH="80" ALIGN=RIGHT))
+PIK (STYLE(COLHEADER)=(WIDTH="80" ALIGN=RIGHT))
+RATING (STYLE(COLHEADER)=(WIDTH="100" ALIGN=LEFT)  )
+SPONSOR(STYLE(COLHEADER)=(WIDTH="250"  ALIGN=LEFT));     
+SUM PRINCIPAL;                    
+RUN;                                                                                                                                                                                           
+      
+DATA MEZZ;
+SET WORK.ALMEZZ;  
+RUN;
+                                                                                                                                                                                
+PROC OFFICE FILE ="MezzTemplate.XLSX";
+SET MEZZ; 
+TEMPLATE "&MezzTemplate.XLSX";  
+RUN;                 
+                
+

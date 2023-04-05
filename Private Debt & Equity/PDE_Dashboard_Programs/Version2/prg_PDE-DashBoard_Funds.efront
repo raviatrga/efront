@@ -1,0 +1,29 @@
+//INCLUDED: prg_inc_BuildTbl-FUND_LIST1, prg_inc_BuildTbl-FUND_PORTFOLIO_SNAPSHOT
+
+LIBNAME USER '\\Private Debt & Equity\PDE_Dashboard_Tables\Version2';
+
+
+%DEFINE REPORT_DATE;
+%DEFINE CALCULATE_IRR;
+%DEFINE USE_INVESTEE_CURR;
+
+%PARAM DATE LABEL="Enter End Date for Funds" TYPE=DATE DEFAULT=TODAY NOTNULL;
+//%PARAM PORT_SNAPSHOT_FUNDS_DATE LABEL = "Enter End Date for Portfolio Snapshot Fund" TYPE=DATE DEFAULT=TODAY NOTNULL;
+
+%LET DATE=%DATE;
+%LET ORIG_DATE=%DATE;
+%LET PORT_SNAPSHOT_FUNDS_DATE=%DATE;
+%LET FX_RATE_DATE = %DATE;
+
+//build the fund data cube
+%INCLUDE "prg_inc_BuildTbl-FUND_LIST1";
+
+//build the fund snapshot cube (requires the FUND_LIST1 cube)
+%INCLUDE "prg_inc_BuildTbl-FUND_PORTFOLIO_SNAPSHOT";
+
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\PDE_Funds.xlsx" LABEL;
+   TABLE = WORK.FUND_LIST1
+   SHEETNAME="funds";
+RUN;
+*/

@@ -1,0 +1,293 @@
+//This uses the existing tables/cubes to calculate and build the IRR by Vintage reports
+//No other parameters are passed in.
+
+LIBNAME PDE '\\Private Debt & Equity\PDE_Dashboard_Tables\Version2';
+
+
+
+//Directs Data
+DATA WORK.Direct_Raw_Data (WHERE INV_YEAR IN(%VINTAGE_DATE_LIST));
+    SET PDE.DirAll_List1;
+    //COLUMN SEQ TYPE=INTEGER; SEQ=0;
+    COLUMN Investment_Type TYPE = STRING;
+    COLUMN Investment_Class TYPE = STRING;
+    COLUMN Investment_Status TYPE = STRING;
+    COLUMN Total_Investment_Cnt TYPE = INTEGER;
+    COLUMN Active_Investment_Cnt TYPE = INTEGER;
+    COLUMN Exited_Investment_Cnt TYPE = INTEGER;
+    COLUMN Invested_Capital TYPE = INTEGER;
+    COLUMN Book_Value TYPE = INTEGER;
+    COLUMN Realized_Value TYPE = INTEGER;
+    COLUMN Unrealized_Value TYPE = INTEGER;
+    COLUMN Total_Value TYPE = INTEGER;
+
+    if Invst_Type = 'Loan'
+        then Investment_Type = 'Direct Debt';
+    elseif Invst_Type = 'Equity'
+        then Investment_Type = 'Direct Equity';
+    end;
+    
+    if Invst_Type = 'Loan'
+        then Investment_Class = %Directs_Debt_Label + Unitranche_Mezz;
+    elseif Invst_Type = 'Equity'
+        then Investment_Class = %Directs_Equity_Label;
+    end;
+    
+    Investment_Status = Facility_Status;
+    
+    Total_Investment_Cnt = '1';
+    
+    if Facility_Status = 'Active'
+        then Active_Investment_Cnt = '1';
+    else Active_Investment_Cnt = '0';
+    end;
+    
+    if Facility_Status = 'Exited'
+        then Exited_Investment_Cnt = '1';
+    else Exited_Investment_Cnt = '0';
+    end;
+    
+    Invested_Capital = Investment;
+    
+    Book_Value = '';
+    
+    Realized_Value = V_Exit;
+    
+    Unrealized_Value = Unrealized;
+    
+    Total_Value = TotalValue;
+RUN;
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\DIRALL_LIST1.xlsx";
+   TABLE = WORK.Direct_Raw_Data
+   SHEETNAME="DIRALL_LIST1";
+RUN;
+//PROC PRINT DATA = WORK.Direct_Raw_Data; RUN;
+*/
+
+//get the Funds data
+DATA WORK.Fund_Raw_Data (WHERE VINTAGE IN(%VINTAGE_DATE_LIST) RENAME = (Q_CUSIP = CUSIP OperationDate = Reference_Date));
+    SET PDE.Fund_List1 (DROP = Fund_Class3);
+    //COLUMN SEQ TYPE=INTEGER; SEQ=0;
+    COLUMN Investment_Type TYPE = STRING;
+    COLUMN Investment_Class TYPE = STRING;
+    COLUMN Investment_Status TYPE = STRING;
+    COLUMN Total_Investment_Cnt TYPE = INTEGER;
+    COLUMN Active_Investment_Cnt TYPE = INTEGER;
+    COLUMN Exited_Investment_Cnt TYPE = INTEGER;
+    COLUMN Invested_Capital TYPE = INTEGER;
+    COLUMN Book_Value TYPE = INTEGER;
+    COLUMN Realized_Value TYPE = INTEGER;
+    COLUMN Unrealized_Value TYPE = INTEGER;
+    COLUMN Total_Value TYPE = INTEGER;
+    
+    Investment_Type = 'Fund';
+    
+    Investment_Class = 'Funds';
+    
+    Investment_Status = FundStatus_Dashbrd;
+    
+    Total_Investment_Cnt = '1';
+    
+    if FundStatus_Dashbrd = 'Active'
+        then Active_Investment_Cnt = '1';
+    else Active_Investment_Cnt = '0';
+    end;
+    
+    if FundStatus_Dashbrd = 'Exited'
+        then Exited_Investment_Cnt = '1';
+    else Exited_Investment_Cnt = '0';
+    end;
+    
+    Invested_Capital = CapitalInvested;
+    
+    Book_Value = CurrentCost;
+    
+    Realized_Value = ReturnOfCapital;
+    
+    Unrealized_Value = LastValuation;
+    
+    Total_Value = TotalValue;
+RUN;
+
+//added to exclude the strategic funds
+DATA WORK.Fund_Raw_Data; //(WHERE CUSIP NOT IN ('BRS2DF867','BRSG0JBP92','BRS2DF842','BRG04G2P6','BRG0PLWN4','BRS2DF834','BRS2FKJU9','BRS2DF7X9','BRG04JXD3'));
+    SET WORK.Fund_Raw_Data (WHERE CUSIP <> 'BRS2DF867'
+                            AND CUSIP <> 'BRG0JBP92'
+                            AND CUSIP <> 'BRS2DF842'
+                            AND CUSIP <> 'BRG04G2P6'
+                            AND CUSIP <> 'BRG0PLWN4'
+                            AND CUSIP <> 'BRS2DF834'
+                            AND CUSIP <> 'BRS2FKJU9'
+                            AND CUSIP <> 'BRS2DF7X9'
+                            AND CUSIP <> 'BRG04JXD3');
+RUN;
+
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\Transactions.xlsx";
+   TABLE = WORK.Direct_Raw_Data
+   SHEETNAME="Direct Transactions";
+RUN;
+
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\Transactions.xlsx";
+   TABLE = WORK.Fund_Raw_Data
+   SHEETNAME="Fund Transactions";
+RUN;
+*/
+
+//calculate directs IRR by Vintage
+PROC MEANS DATA = WORK.Direct_Raw_Data
+    OUT = WORK.DIRECTS_IRR_BY_VINTAGE;
+    CLASS INV_YEAR;
+    IRR IRRNet (NAME = IRR_CALC LABEL = "IRR" FORMAT = P_IRR. DATE = REFERENCE_DATE);
+RUN;
+
+PROC SORT DATA = WORK.DIRECTS_IRR_BY_VINTAGE;   
+    BY INV_YEAR;
+RUN;
+
+//calculate funds IRR by Vintage
+PROC MEANS DATA = WORK.Fund_Raw_Data
+    OUT = WORK.FUNDS_IRR_BY_VINTAGE;
+    CLASS VINTAGE;
+    IRR IRRNet (NAME = IRR_CALC LABEL = "IRR" FORMAT = P_IRR. DATE = REFERENCE_DATE);
+RUN;
+
+PROC SORT DATA = WORK.FUNDS_IRR_BY_VINTAGE;   
+    BY VINTAGE;
+RUN;
+
+//direct equities IRR
+DATA WORK.Direct_Equities_Raw_Data;
+    SET WORK.Direct_Raw_Data (WHERE Invst_Type = 'Equity');
+RUN;
+
+PROC MEANS DATA = WORK.Direct_Equities_Raw_Data
+    OUT = WORK.DIRECTS_EQUITIES_IRR_BY_VINTAGE;
+    CLASS INV_YEAR;
+    IRR IRRNet (NAME = IRR_CALC LABEL = "IRR" FORMAT = P_IRR. DATE = REFERENCE_DATE);
+RUN;
+
+PROC SORT DATA = WORK.DIRECTS_EQUITIES_IRR_BY_VINTAGE;   
+    BY INV_YEAR;
+RUN;
+
+//direct debt IRR
+Data WORK.Direct_Loans_Raw_Data;
+    SET WORK.Direct_Raw_Data (WHERE Invst_Type = 'Loan');
+RUN;
+
+PROC MEANS DATA = WORK.Direct_Loans_Raw_Data
+    OUT = WORK.DIRECTS_LOANS_IRR_BY_VINTAGE;
+    CLASS INV_YEAR;
+    IRR IRRNet (NAME = IRR_CALC LABEL = "IRR" FORMAT = P_IRR. DATE = REFERENCE_DATE);
+RUN;
+
+PROC SORT DATA = WORK.DIRECTS_LOANS_IRR_BY_VINTAGE;   
+    BY INV_YEAR;
+RUN;
+
+//company/fund list
+//direct equities
+PROC MEANS DATA = WORK.Direct_Equities_Raw_Data
+    OUT = WORK.DIRECTS_EQUITIES_IRR_BY_VINTAGE_COMPANIES;
+    CLASS INV_YEAR SHORT_CODE;
+RUN;
+
+PROC SORT DATA = WORK.DIRECTS_EQUITIES_IRR_BY_VINTAGE_COMPANIES;   
+    BY INV_YEAR SHORT_CODE;
+RUN;
+
+//direct debt
+PROC MEANS DATA = WORK.Direct_Loans_Raw_Data
+    OUT = WORK.DIRECTS_DEBTS_IRR_BY_VINTAGE_COMPANIES;
+    CLASS INV_YEAR SHORT_CODE;
+RUN;
+
+PROC SORT DATA = WORK.DIRECTS_DEBTS_IRR_BY_VINTAGE_COMPANIES;   
+    BY INV_YEAR SHORT_CODE;
+RUN;
+
+//directs
+PROC MEANS DATA = WORK.Direct_Raw_Data
+    OUT = WORK.DIRECTS_IRR_BY_VINTAGE_COMPANIES;
+    CLASS INV_YEAR SHORT_CODE;
+RUN;
+
+PROC SORT DATA = WORK.DIRECTS_IRR_BY_VINTAGE_COMPANIES;   
+    BY INV_YEAR SHORT_CODE;
+RUN;
+
+//funds
+
+PROC MEANS DATA = WORK.Fund_Raw_Data
+    OUT = WORK.FUNDS_IRR_BY_VINTAGE_FUNDS;
+    CLASS VINTAGE FUND;
+RUN;
+
+PROC SORT DATA = WORK.FUNDS_IRR_BY_VINTAGE_FUNDS;   
+    BY VINTAGE FUND;
+RUN;
+
+
+
+//output tables
+DATA USER.DIRECTS_IRR_BY_VINTAGE;
+    SET WORK.DIRECTS_IRR_BY_VINTAGE;
+RUN;
+
+DATA USER.FUNDS_IRR_BY_VINTAGE;
+    SET WORK.FUNDS_IRR_BY_VINTAGE;
+RUN;
+
+DATA USER.DIRECTS_EQUITIES_IRR_BY_VINTAGE;
+    SET WORK.DIRECTS_EQUITIES_IRR_BY_VINTAGE;
+RUN;
+
+DATA USER.DIRECTS_LOANS_IRR_BY_VINTAGE;
+    SET WORK.DIRECTS_LOANS_IRR_BY_VINTAGE;
+RUN;
+
+//companies and funds by vintage
+DATA USER.DIRECTS_IRR_BY_VINTAGE_COMPANIES;
+    SET WORK.DIRECTS_IRR_BY_VINTAGE_COMPANIES;
+RUN;
+
+DATA USER.FUNDS_IRR_BY_VINTAGE_FUNDS;
+    SET WORK.FUNDS_IRR_BY_VINTAGE_FUNDS;
+RUN;
+
+DATA USER.DIRECTS_EQUITIES_IRR_BY_VINTAGE_COMPANIES;
+    SET WORK.DIRECTS_EQUITIES_IRR_BY_VINTAGE_COMPANIES;
+RUN;
+
+DATA USER.DIRECTS_DEBTS_IRR_BY_VINTAGE_COMPANIES;
+    SET WORK.DIRECTS_DEBTS_IRR_BY_VINTAGE_COMPANIES;
+RUN;
+
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\VINTAGE_INVESTMENTS.xlsx";
+   TABLE = WORK.Direct_Raw_Data
+   SHEETNAME="directs";
+RUN;
+
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\VINTAGE_INVESTMENTS.xlsx";
+   TABLE = WORK.FUNDS_IRR_BY_VINTAGE
+   SHEETNAME="Companies";
+RUN;
+
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\VINTAGE_INVESTMENTS.xlsx";
+   TABLE = WORK.FUNDS_IRR_BY_VINTAGE_FUNDS
+   SHEETNAME="Funds";
+RUN;
+
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\VINTAGE_INVESTMENTS.xlsx";
+   TABLE = WORK.DIRECTS_EQUITIES_IRR_BY_VINTAGE
+   SHEETNAME="Equity Companies";
+RUN;
+
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\VINTAGE_INVESTMENTS.xlsx";
+   TABLE = WORK.DIRECTS_LOANS_IRR_BY_VINTAGE
+   SHEETNAME="Debt Companies";
+RUN;
+*/

@@ -1,0 +1,32 @@
+LIBNAME LOCAL ".";
+
+%PARAM Date LABEL = 'Quarter End Date' TYPE = DATE DEFAULT = "09/30/2022";
+
+//%LET Prior_First_Quarter = DATEADD("QUARTER",-1,%Date);
+//PROC PRINT; PUT DML(%Prior_First_Quarter); RUN;
+
+%LET Prior_First_Quarter = FORMAT(QUARTERENDDATE(DATEADD("QUARTER",-1,CDATE(%Date))),"MM/dd/yyyy");
+%LET Prior_Second_Quarter = FORMAT(QUARTERENDDATE(DATEADD("QUARTER",-2,CDATE(%Date))),"MM/dd/yyyy");
+//PROC PRINT; PUT %Prior_First_Quarter; RUN;
+//PROC PRINT; PUT %Prior_Second_Quarter; RUN;
+
+//call the query
+PROC FAQUERY Query= "IT Admin - Program Queries\Quarterly NAV Report";    
+    TABLE "Default" OUT=WORK.Quarterly_NAV_Report; 
+RUN;
+
+DATA LOCAL.Fund_Quarterly_NAV;
+    SET WORK.Quarterly_NAV_Report (WHERE Effective_Date = %Date
+                                or CDATE(Effective_Date) = CDATE(%Prior_First_Quarter)
+                                or CDATE(Effective_Date) = CDATE(%Prior_Second_Quarter));
+RUN;
+//PROC PRINT DATA = LOCAL.Quarterly_NAV_Report; RUN;
+
+/*
+%LET NETPATH = Gettemppath() + "\NAV Report.xlsx";
+  PROC EXPORTEXCEL FILE=CSTR(%NETPATH) DROP;
+  TABLE= LOCAL.Quarterly_NAV_Report;
+RUN;
+*/
+
+
