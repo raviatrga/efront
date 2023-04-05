@@ -1,0 +1,473 @@
+// 001 03/20/2022 MB Initial Version
+// 002 04/25/2022 MB Added value depreciation to Non Operating G/L calculation
+// 003 05/04/2022 MB Subtracting OCI from GAAP Unrealized
+
+LIBNAME USER ".";
+
+%PARAM Date LABEL = 'Date' TYPE = DATE DEFAULT = TODAY;
+
+//%LET Start_Date_Q1 = FORMAT("01/01/"||(YEAR(%Date)), 'MM/dd/yyyy');
+%LET Start_Date_Q1 = ("01/01/"||(YEAR(%Date)));
+//%LET Start_Date_Q1 = ("01/01/"||%Fiscal_Year);
+%LET End_Date_Q1 = ("03/31/"||(YEAR(%Date)));
+%LET Start_Date_Q2 = ("04/01/"||(YEAR(%Date)));
+%LET End_Date_Q2 = ("06/30/"||(YEAR(%Date)));
+%LET Start_Date_Q3 =("07/01/"||(YEAR(%Date)));
+%LET End_Date_Q3 = ("09/30/"||(YEAR(%Date)));
+%LET Start_Date_Q4 = ("10/01/"||(YEAR(%Date)));
+%LET End_Date_Q4 = ("12/31/"||(YEAR(%Date)));
+%LET Fiscal_Year = YEAR(%Date);
+//%LET Fiscal_Year = RIGHT(YEAR(%Date),2);
+//PROC PRINT; PUT %Fiscal_Year; RUN;
+//PROC PRINT; PUT %Start_Date_Q1; RUN;
+
+//%LET Prior_Year_Start_Date = FORMAT(DATEADD("YEAR",-1,CDATE(%Start_Date_Q1)),"MM/dd/yyyy");
+//PROC PRINT; PUT %Prior_Year_Start_Date; RUN;
+
+
+//do not want to pull in any metrics from operations occurring on dates that are after the parameter date
+//Q1StartDate
+%LET Q1StartDate = %Start_Date_Q1;
+
+//Q1EndDate
+%if CDATE(%Date) >= CDATE(%Start_Date_Q1) and CDATE(%Date) < CDATE(%End_Date_Q1)
+    %then %let Q1EndDate = %Date;
+%else 
+    %let Q1EndDate = %End_Date_Q1;
+%end;
+
+//Q2StartDate
+%if CDATE(%Date) >= CDATE(%Start_Date_Q2)
+    %then %let Q2StartDate = %Start_Date_Q2;
+%else 
+    %let Q2StartDate = "01/01/1901";
+%end;
+
+//Q2EndDate
+%if CDATE(%Date) >= CDATE(%Start_Date_Q2) and CDATE(%Date) < CDATE(%End_Date_Q2)
+    %then %let Q2EndDate = %Date;
+%elseif CDATE(%Date) >= CDATE(%End_Date_Q2)
+    %then %let Q2EndDate = %End_Date_Q2;
+%else 
+    %let Q2EndDate = "01/01/1901";
+%end;
+
+//Q3StartDate
+%if CDATE(%Date) >= CDATE(%Start_Date_Q3)
+    %then %let Q3StartDate = %Start_Date_Q3;
+%else 
+    %let Q3StartDate = "01/01/1901";
+%end;
+
+//Q3EndDate
+%if CDATE(%Date) >= CDATE(%Start_Date_Q3) and CDATE(%Date) < CDATE(%End_Date_Q3)
+    %then %let Q3EndDate = %Date;
+%elseif CDATE(%Date) >= CDATE(%End_Date_Q3)
+    %then %let Q3EndDate = %End_Date_Q3;
+%else
+    %let Q3EndDate = "01/01/1901";
+%end;
+
+//Q4StartDate
+%if CDATE(%Date) >= CDATE(%Start_Date_Q4)
+    %then %let Q4StartDate = %Start_Date_Q4;
+%else 
+    %let Q4StartDate = "01/01/1901";
+%end;
+
+//Q4EndDate
+%if CDATE(%Date) >= CDATE(%Start_Date_Q4) and CDATE(%Date) < CDATE(%End_Date_Q4)
+    %then %let Q4EndDate = %Date;
+%elseif CDATE(%Date) >= CDATE(%End_Date_Q4)
+    %then %let Q4EndDate = %End_Date_Q4;
+%else
+    %let Q4EndDate = "01/01/1901";
+%end;
+/*
+PROC PRINT; PUT "Date "||CDATE(%Date); RUN;
+PROC PRINT; PUT "Q1StartDate "||CDATE(%Q1StartDate); RUN;
+PROC PRINT; PUT "Q1EndDate "||CDATE(%Q1EndDate); RUN;
+PROC PRINT; PUT "Q2StartDate "||CDATE(%Q2StartDate); RUN;
+PROC PRINT; PUT "Q2EndDate "||CDATE(%Q2EndDate); RUN;
+PROC PRINT; PUT "Q3StartDate "||CDATE(%Q3StartDate); RUN;
+PROC PRINT; PUT "Q3EndDate "||CDATE(%Q3EndDate); RUN;
+PROC PRINT; PUT "Q4StartDate "||CDATE(%Q4StartDate); RUN;
+PROC PRINT; PUT "Q4EndDate "||CDATE(%Q4EndDate); RUN;
+*/
+
+//Only pull in funds that have an operation before the report run date -- QUESTION: is commitment ok or do we only want funding operations?
+DATA WORK.FundOperations (RENAME = (FundName = Investee));
+    SET FCE.FundOperations (WHERE OperationDate <= %Date);
+RUN;
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\FundOperations.xlsx" LABEL;
+   TABLE = WORK.FundOperations
+   SHEETNAME="FundOperations";
+RUN;
+*/
+    
+PROC MEANS DATA = WORK.FundOperations
+    OUT = WORK.IncludedFunds;
+    CLASS Investee;
+RUN;
+
+PROC SORT DATA = WORK.IncludedFunds;
+    BY Investee;
+RUN;
+//PROC PRINT DATA = WORK.IncludedFunds; RUN;
+
+
+//Identify funds that have a liquidation operation (these will have the commitment amount set to 0)
+DATA WORK.LiquidatedFunds;
+    SET WORK.FundOperations (WHERE OperationType IN ('-284','-286','-305'));
+RUN;
+
+PROC MEANS DATA = WORK.LiquidatedFunds
+    OUT = WORK.LiquidatedFunds;
+    CLASS Investee;
+    MIN OperationDate (NAME = First_Liquidation_Date);
+RUN;
+
+DATA WORK.LiquidatedFunds;
+    SET WORK.LiquidatedFunds;
+    COLUMN Liquidated_Fund TYPE = BOOLEAN; Liquidated_Fund = 1;
+RUN;
+//PROC PRINT DATA = WORK.LiquidatedFunds; RUN;
+
+
+//Pull in information from Accounting Asset and Income Summary Query
+PROC FAQUERY QUERY="IT Admin - Program Queries\Asset and Income Summary"
+    (
+    Date = CDATE(%Date)
+    Q1_Start_Date = CDATE(%Q1StartDate)
+    Q1_End_Date = CDATE(%Q1EndDate)
+    Q2_Start_Date = CDATE(%Q2StartDate)
+    Q2_End_Date = CDATE(%Q2EndDate)
+    Q3_Start_Date = CDATE(%Q3StartDate)
+    Q3_End_Date = CDATE(%Q3EndDate)
+    Q4_Start_Date = CDATE(%Q4StartDate)
+    Q4_End_Date = CDATE(%Q4EndDate)
+    );    
+    TABLE 'Default' OUT = WORK.AssetAndIncomeSummaryQuery;
+RUN;
+//PROC PRINT DATA = WORK.AssetAndIncomeSummaryQuery LABEL; RUN;
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\AssetAndIncomeSummaryQuery.xlsx";
+   TABLE = WORK.AssetAndIncomeSummaryQuery
+   SHEETNAME="Query";
+RUN;
+*/
+
+DATA WORK.AssetAndIncomeSummaryQuery;
+    SET WORK.AssetAndIncomeSummaryQuery;
+    /*(
+    WHERE 
+       (Fund_Status IN ('Fund (Closed Ended)','RE Joint Venture','Equity Co-Investment (Accounting Only)','Run Off/Sold') AND Invest_Type = 'RGA Participation')
+    OR (
+       (Fund_Status IN ('RE Joint Venture','Exited Fund') AND CDATE(Actual_End_Date) >= CDATE(%Start_Date_Q1))    //CDATE(%Prior_Year_Start_Date))    should this be current year or prior year?
+       OR 
+       (Fund_Status IN ('RE Joint Venture','Exited Fund','Run Off/Sold') AND Actual_End_Date IS NULL)
+       )*/
+    /*OR ( 
+       Fund_Status = 'Exited Fund' 
+       AND 
+       (Q1_Income IS NOT NULL 
+       OR Q2_Income IS NOT NULL 
+       OR Q3_Income IS NOT NULL 
+       OR Q4_Income IS NOT NULL
+       OR Q1_STAT_Income IS NOT NULL
+       OR Q2_STAT_Income IS NOT NULL
+       OR Q3_STAT_Income IS NOT NULL
+       OR Q4_STAT_Income IS NOT NULL)
+       )*/
+    //);
+RUN;
+//PROC PRINT DATA = WORK.AssetAndIncomeSummaryQuery LABEL; RUN;
+
+DATA WORK.AssetAndIncomeSummary;
+    MERGE WORK.IncludedFunds (IN=OK_L)
+          WORK.AssetAndIncomeSummaryQuery (IN=OK_R);
+    BY Investee;
+    IF (OK_L) THEN OUTPUT;
+    END;
+RUN;
+
+
+//Set commitment amount to 0 for liquidated funds
+DATA WORK.AssetAndIncomeSummary;
+    MERGE WORK.AssetAndIncomeSummary (IN=OK_L)
+          WORK.LiquidatedFunds (IN=OK_R);
+    BY Investee;
+    IF (OK_L) THEN OUTPUT;
+    END;
+RUN;
+//PROC PRINT DATA = WORK.AssetAndIncomeSummary; RUN;
+
+DATA WORK.AssetAndIncomeSummary;
+    SET WORK.AssetAndIncomeSummary;
+    COLUMN Carry_Value TYPE = DOUBLE;
+    COLUMN Commitment_Upd TYPE = DOUBLE;
+    COLUMN Remaining_Commitment_Upd TYPE = DOUBLE;
+    COLUMN Ownership_Percent TYPE = DOUBLE;
+    
+    COLUMN Q1_GAAP_Income TYPE = DOUBLE;
+    COLUMN Q2_GAAP_Income TYPE = DOUBLE;
+    COLUMN Q3_GAAP_Income TYPE = DOUBLE;
+    COLUMN Q4_GAAP_Income TYPE = DOUBLE;
+    
+    COLUMN Q1_GAAP_Unrealized TYPE = DOUBLE;
+    COLUMN Q2_GAAP_Unrealized TYPE = DOUBLE;
+    COLUMN Q3_GAAP_Unrealized TYPE = DOUBLE;
+    COLUMN Q4_GAAP_Unrealized TYPE = DOUBLE;
+    
+    COLUMN Q1_STAT_Income_Upd TYPE = DOUBLE;
+    COLUMN Q2_STAT_Income_Upd TYPE = DOUBLE;
+    COLUMN Q3_STAT_Income_Upd TYPE = DOUBLE;
+    COLUMN Q4_STAT_Income_Upd TYPE = DOUBLE;
+    
+    COLUMN Q1_Expenses TYPE = DOUBLE;
+    COLUMN Q2_Expenses TYPE = DOUBLE;
+    COLUMN Q3_Expenses TYPE = DOUBLE;
+    COLUMN Q4_Expenses TYPE = DOUBLE;
+    
+    COLUMN Q1_Non_Operating_Gains_Losses TYPE = DOUBLE;
+    COLUMN Q2_Non_Operating_Gains_Losses TYPE = DOUBLE;
+    COLUMN Q3_Non_Operating_Gains_Losses TYPE = DOUBLE;
+    COLUMN Q4_Non_Operating_Gains_Losses TYPE = DOUBLE;
+    
+    Carry_Value = GL_Cost_US_GAAP + GL_Cost_Elim;
+    
+    if Liquidated_Fund = '1'
+        then Commitment_Upd = '0';
+    else Commitment_Upd = Commitment;
+    end;
+    
+    /*if Liquidated_Fund = 'TRUE' 
+        then Remaining_Commitment_Upd = 0;
+    else Remaining_Commitment_Upd = Remaining_Commitment;
+    end;*/
+    Remaining_Commitment_Upd = Remaining_Commitment;
+    
+    if RGA_Share_of_Target_Fund_Perc IS NOT NULL 
+        then Ownership_Percent = RGA_Share_of_Target_Fund_Perc;
+    else Ownership_Percent = LEVEL_1_RGA;
+    end;
+    
+    //GAAP Income
+    /*if Fund_Accounting_Form = 'LP Equity Method'
+        then Q1_GAAP_Income = Q1_Income + Q1_Unrealized_GL_LP_Equity_600251 + Q1_Quarterly_Unrealized_Gain_Loss_IS;
+    else Q1_GAAP_Income = Q1_Income + Q1_Unrealized_GL_LP_Equity_600251;
+    end;
+    if Fund_Accounting_Form = 'LP Equity Method'
+        then Q2_GAAP_Income = Q2_Income + Q2_Unrealized_GL_LP_Equity_600251 + Q2_Quarterly_Unrealized_Gain_Loss_IS;
+    else Q2_GAAP_Income = Q2_Income + Q2_Unrealized_GL_LP_Equity_600251;
+    end;
+    if Fund_Accounting_Form = 'LP Equity Method'
+        then Q3_GAAP_Income = Q3_Income + Q3_Unrealized_GL_LP_Equity_600251 + Q3_Quarterly_Unrealized_Gain_Loss_IS;
+    else Q3_GAAP_Income = Q3_Income + Q3_Unrealized_GL_LP_Equity_600251;
+    end;
+    if Fund_Accounting_Form = 'LP Equity Method'
+        then Q4_GAAP_Income = Q4_Income + Q4_Unrealized_GL_LP_Equity_600251 + Q4_Quarterly_Unrealized_Gain_Loss_IS;
+    else Q4_GAAP_Income = Q4_Income + Q4_Unrealized_GL_LP_Equity_600251;
+    end;*/
+    Q1_GAAP_Income = Q1_Income + Q1_Dist_Initial_Investor_Origination_Fees;
+    Q2_GAAP_Income = Q2_Income + Q2_Dist_Initial_Investor_Origination_Fees;
+    Q3_GAAP_Income = Q3_Income + Q3_Dist_Initial_Investor_Origination_Fees;
+    Q4_GAAP_Income = Q4_Income + Q4_Dist_Initial_Investor_Origination_Fees;
+    
+    //GAAP Unrealized
+    if Fund_Accounting_Form = 'LP Equity Method'
+        then Q1_GAAP_Unrealized = Q1_Unrealized_GL_LP_Equity_600251 + Q1_Amount_GL_Unrealized_Investment_Gain_Loss - Q1_Quarterly_Unrealized_Gain_Loss_OCI;    
+    else Q1_GAAP_Unrealized = Q1_Unrealized_GL_LP_Equity_600251 - Q1_Quarterly_Unrealized_Gain_Loss_OCI;
+    end;
+    if Fund_Accounting_Form = 'LP Equity Method'
+        then Q2_GAAP_Unrealized = Q2_Unrealized_GL_LP_Equity_600251 + Q2_Amount_GL_Unrealized_Investment_Gain_Loss - Q2_Quarterly_Unrealized_Gain_Loss_OCI;
+    else Q2_GAAP_Unrealized = Q2_Unrealized_GL_LP_Equity_600251 - Q2_Quarterly_Unrealized_Gain_Loss_OCI;
+    end;
+    if Fund_Accounting_Form = 'LP Equity Method'
+        then Q3_GAAP_Unrealized = Q3_Unrealized_GL_LP_Equity_600251 + Q3_Amount_GL_Unrealized_Investment_Gain_Loss - Q3_Quarterly_Unrealized_Gain_Loss_OCI;
+    else Q3_GAAP_Unrealized = Q3_Unrealized_GL_LP_Equity_600251 - Q3_Quarterly_Unrealized_Gain_Loss_OCI;
+    end;
+    if Fund_Accounting_Form = 'LP Equity Method'
+        then Q4_GAAP_Unrealized = Q4_Unrealized_GL_LP_Equity_600251 + Q4_Amount_GL_Unrealized_Investment_Gain_Loss - Q4_Quarterly_Unrealized_Gain_Loss_OCI;
+    else Q4_GAAP_Unrealized = Q4_Unrealized_GL_LP_Equity_600251 - Q4_Quarterly_Unrealized_Gain_Loss_OCI;
+    end;    //003 added Quarterly_Unrealized_Gain_Loss_OCI
+    
+    //STAT Income
+    Q1_STAT_Income_Upd = Q1_STAT_Income + Q1_Dist_Initial_Investor_Origination_Fees;
+    Q2_STAT_Income_Upd = Q2_STAT_Income + Q2_Dist_Initial_Investor_Origination_Fees;
+    Q3_STAT_Income_Upd = Q3_STAT_Income + Q3_Dist_Initial_Investor_Origination_Fees;
+    Q4_STAT_Income_Upd = Q4_STAT_Income + Q4_Dist_Initial_Investor_Origination_Fees;
+    
+    //Expenses
+    Q1_Expenses = Q1_Management_Fees_Outside_Commitment + Q1_Legal_Fees_Outside_Commitment + Q1_Other_Expenses_Outside_Commitment + Q1_Professional_Fees_Outside_Commitment + Q1_Organizational_Costs_Outside_Commitment + Q1_Subsequent_Close_Interest_Outside_Commitment - Q1_Withholding_Tax - Q1_Subsequent_Close_Interest;
+    Q2_Expenses = Q2_Management_Fees_Outside_Commitment + Q2_Legal_Fees_Outside_Commitment + Q2_Other_Expenses_Outside_Commitment + Q2_Professional_Fees_Outside_Commitment + Q2_Organizational_Costs_Outside_Commitment + Q2_Subsequent_Close_Interest_Outside_Commitment - Q2_Withholding_Tax - Q2_Subsequent_Close_Interest;
+    Q3_Expenses = Q3_Management_Fees_Outside_Commitment + Q3_Legal_Fees_Outside_Commitment + Q3_Other_Expenses_Outside_Commitment + Q3_Professional_Fees_Outside_Commitment + Q3_Organizational_Costs_Outside_Commitment + Q3_Subsequent_Close_Interest_Outside_Commitment - Q3_Withholding_Tax - Q3_Subsequent_Close_Interest;
+    Q4_Expenses = Q4_Management_Fees_Outside_Commitment + Q4_Legal_Fees_Outside_Commitment + Q4_Other_Expenses_Outside_Commitment + Q4_Professional_Fees_Outside_Commitment + Q4_Organizational_Costs_Outside_Commitment + Q4_Subsequent_Close_Interest_Outside_Commitment - Q4_Withholding_Tax - Q4_Subsequent_Close_Interest;   
+
+    //Non-Operating Gains and Losses
+    if Fund_Accounting_Form = 'LP Fair Value Method'
+        then Q1_Non_Operating_Gains_Losses = Q1_Realized_Investment_Gain_Loss + Q1_GL_Write_Down + Q1_GL_Write_Down_ELIM + Q1_Unrealized_GL_LP_Cost_650431 + Q1_Amount_GL_Unrealized_Investment_Gain_Loss + Q1_Amount_GL_Unrecognized_Earnings + Q1_Value_Depreciation;
+    else Q1_Non_Operating_Gains_Losses = Q1_Realized_Investment_Gain_Loss + Q1_GL_Write_Down + Q1_GL_Write_Down_ELIM + Q1_Unrealized_GL_LP_Cost_650431 + Q1_Value_Depreciation;
+    end;
+    if Fund_Accounting_Form = 'LP Fair Value Method'
+        then Q2_Non_Operating_Gains_Losses = Q2_Realized_Investment_Gain_Loss + Q2_GL_Write_Down + Q2_GL_Write_Down_ELIM + Q2_Unrealized_GL_LP_Cost_650431 + Q2_Amount_GL_Unrealized_Investment_Gain_Loss + Q2_Amount_GL_Unrecognized_Earnings + Q2_Value_Depreciation;
+    else Q2_Non_Operating_Gains_Losses = Q2_Realized_Investment_Gain_Loss + Q2_GL_Write_Down + Q2_GL_Write_Down_ELIM + Q2_Unrealized_GL_LP_Cost_650431 + Q2_Value_Depreciation;
+    end;
+    if Fund_Accounting_Form = 'LP Fair Value Method'
+        then Q3_Non_Operating_Gains_Losses = Q3_Realized_Investment_Gain_Loss + Q3_GL_Write_Down + Q3_GL_Write_Down_ELIM + Q3_Unrealized_GL_LP_Cost_650431 + Q3_Amount_GL_Unrealized_Investment_Gain_Loss + Q3_Amount_GL_Unrecognized_Earnings + Q3_Value_Depreciation;
+    else Q3_Non_Operating_Gains_Losses = Q3_Realized_Investment_Gain_Loss + Q3_GL_Write_Down + Q3_GL_Write_Down_ELIM + Q3_Unrealized_GL_LP_Cost_650431 + Q3_Value_Depreciation;
+    end;
+    if Fund_Accounting_Form = 'LP Fair Value Method'
+        then Q4_Non_Operating_Gains_Losses = Q4_Realized_Investment_Gain_Loss + Q4_GL_Write_Down + Q4_GL_Write_Down_ELIM + Q4_Unrealized_GL_LP_Cost_650431 + Q4_Amount_GL_Unrealized_Investment_Gain_Loss + Q4_Amount_GL_Unrecognized_Earnings + Q4_Value_Depreciation;
+    else Q4_Non_Operating_Gains_Losses = Q4_Realized_Investment_Gain_Loss + Q4_GL_Write_Down + Q4_GL_Write_Down_ELIM + Q4_Unrealized_GL_LP_Cost_650431 + Q4_Value_Depreciation;
+    end; //002 added Value Depreciation
+RUN;
+//PROC PRINT DATA = WORK.AssetAndIncomeSummary; RUN;
+
+PROC FAQUERY QUERY="IT Admin - Program Queries\Asset and Income Summary" (Date = CDATE(%Date));
+    TABLE 'HBT Operations - Unrealized G/L' OUT = WORK.HBTUnrealized;
+RUN;
+
+DATA WORK.HBTUnrealized;
+    SET WORK.HBTUnrealized;
+    COLUMN QtrEndDate TYPE = Date;
+    QtrEndDate = QuarterEndDate(Effective_Date);
+RUN;
+//PROC PRINT DATA = WORK.HBTUnrealized; RUN;
+
+PROC MEANS DATA = WORK.HBTUnrealized
+    OUT = WORK.HBTUnrealized;
+    CLASS Investee QtrEndDate;
+    SUM Unrealized_GL (NAME = Unrealized_GL);
+RUN;
+//PROC PRINT DATA = WORK.HBTUnrealized; RUN;
+
+DATA WORK.HBTUnrealized;
+    SET WORK.HBTUnrealized (WHERE CDATE(QtrEndDate) = CDATE(%End_Date_Q1)
+                            OR CDATE(QtrEndDate) = CDATE(%End_Date_Q2)
+                            OR CDATE(QtrEndDate) = CDATE(%End_Date_Q3)
+                            OR CDATE(QtrEndDate) = CDATE(%End_Date_Q4));
+RUN;
+//PROC PRINT DATA = WORK.HBTUnrealized; RUN;
+
+DATA WORK.HBTUnrealized (DROP = QtrEndDate Unrealized_GL);
+    SET WORK.HBTUnrealized;
+    COLUMN Q1_HBT_Unrealized TYPE = DOUBLE;
+    COLUMN Q2_HBT_Unrealized TYPE = DOUBLE;
+    COLUMN Q3_HBT_Unrealized TYPE = DOUBLE;
+    COLUMN Q4_HBT_Unrealized TYPE = DOUBLE;
+    
+    if CDATE(QtrEndDate) = CDATE(%End_Date_Q1)
+        then Q1_HBT_Unrealized = Unrealized_GL;
+    else Q1_HBT_Unrealized = 0;
+    end;
+    if CDATE(QtrEndDate) = CDATE(%End_Date_Q2)
+        then Q2_HBT_Unrealized = Unrealized_GL;
+    else Q2_HBT_Unrealized = 0;
+    end;
+    if CDATE(QtrEndDate) = CDATE(%End_Date_Q3)
+        then Q3_HBT_Unrealized = Unrealized_GL;
+    else Q3_HBT_Unrealized = 0;
+    end;
+    if CDATE(QtrEndDate) = CDATE(%End_Date_Q4)
+        then Q4_HBT_Unrealized = Unrealized_GL;
+    else Q4_HBT_Unrealized = 0;
+    end;
+RUN;
+//PROC PRINT DATA = WORK.HBTUnrealized; RUN;
+
+PROC MEANS DATA = WORK.HBTUnrealized
+    OUT = WORK.HBTUnrealized;
+    CLASS Investee;
+    VAR Q1_HBT_Unrealized Q2_HBT_Unrealized Q3_HBT_Unrealized Q4_HBT_Unrealized;
+RUN;
+//PROC PRINT DATA = WORK.HBTUnrealized; RUN;
+
+DATA WORK.AssetAndIncomeSummary;
+    MERGE WORK.AssetAndIncomeSummary (IN = OK_L)
+          WORK.HBTUnrealized (IN = OK_R);
+    BY Investee;
+    _OUTPUT_ = OK_L;
+RUN;
+
+
+DATA WORK.AssetAndIncomeSummary;
+    SET WORK.AssetAndIncomeSummary;
+    COLUMN Q1_Non_Operating_Gains_Losses_Upd TYPE = DOUBLE;
+    COLUMN Q2_Non_Operating_Gains_Losses_Upd TYPE = DOUBLE;
+    COLUMN Q3_Non_Operating_Gains_Losses_Upd TYPE = DOUBLE;
+    COLUMN Q4_Non_Operating_Gains_Losses_Upd TYPE = DOUBLE;
+    Q1_Non_Operating_Gains_Losses_Upd = Q1_Non_Operating_Gains_Losses - Q1_HBT_Unrealized;
+    Q2_Non_Operating_Gains_Losses_Upd = Q2_Non_Operating_Gains_Losses - Q2_HBT_Unrealized;
+    Q3_Non_Operating_Gains_Losses_Upd = Q3_Non_Operating_Gains_Losses - Q3_HBT_Unrealized;
+    Q4_Non_Operating_Gains_Losses_Upd = Q4_Non_Operating_Gains_Losses - Q4_HBT_Unrealized;
+RUN;
+
+
+DATA WORK.AssetAndIncomeSummary;
+    SET WORK.AssetAndIncomeSummary (WHERE 
+                                    (Fund_Status <> 'Exited Fund'
+                                    AND ((Liquidated_Fund IS NULL or Liquidated_Fund <> '1') 
+                                    OR (NZ(Q1_GAAP_Income,0) <> 0
+                                    OR NZ(Q2_GAAP_Income,0) <> 0
+                                    OR NZ(Q3_GAAP_Income,0) <> 0
+                                    OR NZ(Q4_GAAP_Income,0) <> 0
+                                    OR NZ(Q1_GAAP_Unrealized,0) <> 0
+                                    OR NZ(Q2_GAAP_Unrealized,0) <> 0
+                                    OR NZ(Q3_GAAP_Unrealized,0) <> 0
+                                    OR NZ(Q4_GAAP_Unrealized,0) <> 0
+                                    OR NZ(Q1_STAT_Income_Upd,0) <> 0
+                                    OR NZ(Q2_STAT_Income_Upd,0) <> 0
+                                    OR NZ(Q3_STAT_Income_Upd,0) <> 0
+                                    OR NZ(Q4_STAT_Income_Upd,0) <> 0
+                                    OR NZ(Q1_Expenses,0) <> 0
+                                    OR NZ(Q2_Expenses,0) <> 0
+                                    OR NZ(Q3_Expenses,0) <> 0
+                                    OR NZ(Q4_Expenses,0) <> 0
+                                    OR NZ(Q1_Non_Operating_Gains_Losses,0) <> 0
+                                    OR NZ(Q2_Non_Operating_Gains_Losses,0) <> 0
+                                    OR NZ(Q3_Non_Operating_Gains_Losses,0) <> 0
+                                    OR NZ(Q4_Non_Operating_Gains_Losses,0) <> 0)))
+                                   
+                                    OR (Fund_Status = 'Exited Fund'
+                                    AND (NZ(Q1_GAAP_Income,0) <> 0
+                                    OR NZ(Q2_GAAP_Income,0) <> 0
+                                    OR NZ(Q3_GAAP_Income,0) <> 0
+                                    OR NZ(Q4_GAAP_Income,0) <> 0
+                                    OR NZ(Q1_GAAP_Unrealized,0) <> 0
+                                    OR NZ(Q2_GAAP_Unrealized,0) <> 0
+                                    OR NZ(Q3_GAAP_Unrealized,0) <> 0
+                                    OR NZ(Q4_GAAP_Unrealized,0) <> 0
+                                    OR NZ(Q1_STAT_Income_Upd,0) <> 0
+                                    OR NZ(Q2_STAT_Income_Upd,0) <> 0
+                                    OR NZ(Q3_STAT_Income_Upd,0) <> 0
+                                    OR NZ(Q4_STAT_Income_Upd,0) <> 0
+                                    OR NZ(Q1_Expenses,0) <> 0
+                                    OR NZ(Q2_Expenses,0) <> 0
+                                    OR NZ(Q3_Expenses,0) <> 0
+                                    OR NZ(Q4_Expenses,0) <> 0
+                                    OR NZ(Q1_Non_Operating_Gains_Losses,0) <> 0
+                                    OR NZ(Q2_Non_Operating_Gains_Losses,0) <> 0
+                                    OR NZ(Q3_Non_Operating_Gains_Losses,0) <> 0
+                                    OR NZ(Q4_Non_Operating_Gains_Losses,0) <> 0))
+                                    );
+RUN;
+//PROC PRINT DATA = WORK.AssetAndIncomeSummary; RUN;
+
+//Create excel extract
+DATA WORK.ReportParameters;
+    COLUMN ReportDate TYPE = DATE LABEL = 'Report Date';
+    COLUMN FiscalYear TYPE = INTEGER LABEL = 'Fiscal Year';
+    ReportDate = CDATE(%Date);
+    FiscalYear = %Fiscal_Year;
+    OUTPUT;
+RUN;
+//PROC PRINT DATA = WORK.Fiscal_Year; RUN;
+
+//PROC OFFICE FILE= Format(Year(%Date),"0000") + " Asset and Income Summary Exported " + Format(now(),"yyyyMMdd") + ".xlsx"; 
+PROC OFFICE FILE= Format((%Date),"MMddyy") + " Asset and Income Summary Exported " + Format(now(),"MMddyy") + ".xlsx"; 
+    SET WORK.ReportParameters 
+        WORK.AssetAndIncomeSummary;
+    TEMPLATE "&Asset and Income Summary Template.xlsx";
+RUN;

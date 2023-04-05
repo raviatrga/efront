@@ -1,0 +1,166 @@
+LIBNAME LOCAL ".";
+LIBNAME USER ".";
+
+%param Date label="<b>As of Date:</b><BR><BR>" type=DATE DEFAULT=TODAY;
+
+DATA WORK.Fund_Portfolio_Breakout;
+SQL "
+
+SELECT 
+     Fund
+    ,CUSIP
+    ,Investor
+    ,Fund_Accounting_Form
+    ,Fund_Status
+    ,[AME_ALTGFS]
+    ,[AME_ALTMWA]
+    ,[AME_ALTAE]
+    ,[GAC_ALTAUS]
+    ,[AUR_ALTA]
+    ,[RGAX_ALTA]
+    ,[RGAX_ALTCH]
+    ,[RARE_JVGFS]
+    ,[RARE_JVGUS]
+    ,[RARE_JVGHK]
+    ,[RARE_JV]
+    ,[REI_JVUS]
+    ,[REI_JVGP]
+    ,[REI_JVH]
+    ,[REI_JVGFS]
+    ,[RRE_ALTAGP]
+    ,[RRE_ALTA]
+    ,[RRE_ALTAH]
+    ,[RRE_ALTAUS]
+    ,[RRE_ALTGFS]
+    ,[WSP_ALTA]
+FROM
+
+(
+SELECT 
+     VCF.Fund 
+    ,VCF.UserText2 as CUSIP 
+    ,SUB.Libelle as Investor
+    ,(CASE
+        when VCF.UserText3 = 'COST' then 'LP Cost Method'
+        when VCF.UserText3 = 'EQUITY' then 'LP Equity Method'
+        when VCF.UserText3 = 'FV' then 'LP Fair Value Method'
+        when VCF.UserText3 = 'NAV' then 'LP NAV Method'
+     else ''
+     END) as Fund_Accounting_Form
+    ,FSTAT.Descr as Fund_Status
+    ,SUB1.UserText1 as Portfolio
+    ,SUBELT.Allocation/ELT_TOT.Total_Alloc as Perc_Calc
+FROM VCFUND VCF 
+JOIN VCFUNDSTAT FSTAT 
+    ON VCF.FStatus = FSTAT.Code 
+    AND FSTAT.Filter <> '00000000000000000000000000000000'
+JOIN VCSUBSCRIBER SUB 
+    ON VCF.IQID = SUB.Fund 
+    AND SUB.IQDeleted=0 
+JOIN VCSUBSCRALLOCRULE SUBALLOC 
+    ON SUBALLOC.IQID = SUB.SubscrAllocRule
+    AND SUBALLOC.IQDeleted=0 
+JOIN VCSUBSCRALLOCRULEELT SUBELT 
+    ON SUBELT.SubscrAllocRule = SUB.SubscrAllocRule
+JOIN VCSUBSCRALLOCRULE SUBALLOC1 
+    ON SUBALLOC1.IQID = SUBELT.SubscrAllocRule
+    AND SUBALLOC1.IQDeleted=0 
+JOIN VCSUBSCRIBER SUB1 
+    ON SUB1.Fund = SubAlloc1.FUND 
+    AND SUB1.IQID = SUBELT.Subscriber
+    AND SUB1.IQDeleted=0
+JOIN 
+    (
+    SELECT 
+         SubscrAllocRule as SARGrp
+        ,SubscrAllocRuleSerie as SARSGrp
+        ,SUM(Allocation) as Total_Alloc 
+    FROM VCSUBSCRALLOCRULEELT 
+    GROUP BY SubscrAllocRule, SubscrAllocRuleSerie
+    ) ELT_TOT 
+    ON SUBELT.SubscrAllocRule = ELT_TOT.SARGrp
+    AND SUBELT.SubscrAllocRuleSerie = ELT_TOT.SARSGrp
+JOIN VCSUBSCRALLOCRULESERIE SERIE 
+    ON SERIE.IQID = SUBELT.SubscrAllocRuleSerie  
+    AND SERIE.AllocRule = SUBELT.SubscrAllocRule
+    AND SERIE.Reference_Date = (SELECT MAX(Reference_Date) 
+                                FROM VCSUBSCRALLOCRULESERIE SERIE1 
+                                WHERE SERIE.AllocRule = SERIE1.AllocRule
+                                AND SERIE1.Reference_Date <= " & DML(%date) & " 
+                                AND SERIE1.IQDeleted=0) 
+    AND SERIE.IQDeleted=0                                  
+JOIN ADMROLE REG 
+    ON VCF.IQRegionID = REG.IQID   
+       
+WHERE VCF.IQDeleted=0 
+        
+) AS A
+
+PIVOT
+
+(MIN(Perc_Calc) FOR Portfolio IN ([AME_ALTGFS],[AME_ALTMWA],[AME_ALTAE],[GAC_ALTAUS],[AUR_ALTA],[RGAX_ALTA],[RGAX_ALTCH],[RARE_JVGFS],[RARE_JVGUS],[RARE_JVGHK],[RARE_JV],[REI_JVUS],[REI_JVGP],[REI_JVH],[REI_JVGFS],[RRE_ALTAGP],[RRE_ALTA],[RRE_ALTAH],[RRE_ALTAUS],[RRE_ALTGFS],[WSP_ALTA])) as PivotTable
+
+WHERE Fund_Status <> 'RGA Legal Entity'
+ORDER BY Fund
+" ;
+COLUMN Fund;
+RUN;  
+//PROC PRINT DATA = WORK.FNDPOSMAST_PIVOT; RUN;
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\Fund_Portfolio_Breakout.xlsx" LABEL;
+   TABLE = WORK.Fund_Portfolio_Breakout
+   SHEETNAME="Potfolio Breakout";
+RUN;
+*/
+
+
+DATA WORK.LiquidatedFunds (RENAME = (FundName = Fund));
+    SET FCE.FundOperations (WHERE (OperationDate <= %Date and OperationType IN ('-284','-286','-305'))); //or Fund_Status = 'Exited Fund'
+RUN;
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\LiquidatedFunds.xlsx" LABEL;
+   TABLE = WORK.LiquidatedFunds
+   SHEETNAME="LiquidatedFunds";
+RUN;
+*/
+
+PROC MEANS DATA = WORK.LiquidatedFunds
+    OUT = WORK.LiquidatedFunds;
+    CLASS Fund;
+    MIN OperationDate (NAME = First_Liquidation_Date);
+RUN;
+/*
+DATA WORK.LiquidatedFunds;
+    SET WORK.LiquidatedFunds;
+    COLUMN Liquidated_Fund TYPE = BOOLEAN; Liquidated_Fund = 1;
+RUN;
+*/
+DATA WORK.Fund_Portfolio_Breakout;
+    MERGE WORK.Fund_Portfolio_Breakout (IN = OK_L)
+          WORK.LiquidatedFunds (IN = OK_R);
+    BY Fund;
+    if (OK_L) then Output;
+    end;
+RUN;
+//PROC PRINT DATA = WORK.Fund_Portfolio_Breakout; RUN;    
+
+DATA WORK.Fund_Portfolio_Breakout;
+    SET WORK.Fund_Portfolio_Breakout;
+    COLUMN Liquidated_Fund TYPE = BOOLEAN;
+    if First_Liquidation_Date is not NULL or Fund_Status = 'Exited Fund'
+        then Liquidated_Fund = 1;
+    else Liquidated_Fund = 0;
+    end;
+RUN;
+//PROC PRINT DATA = WORK.Fund_Portfolio_Breakout; RUN;   
+
+DATA LOCAL.Active_Fund_Portfolio_Breakout (DROP = Fund_Status);
+    SET WORK.Fund_Portfolio_Breakout (WHERE Liquidated_Fund <> '1' and CUSIP is not NULL);
+RUN;
+//PROC PRINT DATA = LOCAL.Active_Fund_Portfolio_Breakout; RUN;
+
+DATA LOCAL.Liquidated_Fund_Portfolio_Breakout (DROP = Fund_Status);
+    SET WORK.Fund_Portfolio_Breakout (WHERE Liquidated_Fund = '1' and CUSIP is not NULL);
+RUN;
+//PROC PRINT DATA = LOCAL.Liquidated_Fund_Portfolio_Breakout; RUN;
+

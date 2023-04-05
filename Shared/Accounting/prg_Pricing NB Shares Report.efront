@@ -1,0 +1,107 @@
+LIBNAME USER ".";
+
+%PARAM Start_Date LABEL = 'Start Date' TYPE = DATE DEFAULT = TODAY;
+%PARAM End_Date LABEL = 'End Date' TYPE = DATE DEFAULT = TODAY;
+
+DATA WORK.FundOperations (RENAME = (FundName = Investee));
+    SET FCE.FundOperations (WHERE CDATE(OperationDate) <= CDATE(%End_Date));
+RUN;
+//PROC PRINT DATA = WORK.LiquidatedFunds; RUN;
+
+DATA WORK.LiquidationOperations;
+    SET WORK.FundOperations (WHERE OperationType IN ('-284','-286','-305') AND CDATE(OperationDate) < CDATE(%Start_Date));
+RUN;
+
+PROC MEANS DATA = WORK.LiquidationOperations
+    OUT = WORK.LiquidatedFunds;
+    CLASS Investee;
+RUN;
+//PROC PRINT DATA = WORK.Fund_FirstLiquidation; RUN;
+
+DATA WORK.LiquidatedFunds;
+    SET WORK.LiquidatedFunds;
+    COLUMN Liquidated_Fund TYPE = BOOLEAN; Liquidated_Fund = 1;
+RUN;
+
+DATA WORK.FundingOperations;
+    SET WORK.FundOperations (WHERE OperationType IN ('201','203','304','210','211','306'));    //Just call and mixed op transactions
+RUN;
+//PROC PRINT DATA = WORK.FundedFunds; RUN;
+
+PROC MEANS DATA = WORK.FundingOperations
+    OUT = WORK.FundedFunds;
+    CLASS Investee;
+RUN;
+//PROC PRINT DATA = WORK.FundedFunds; RUN;
+
+DATA WORK.FundedFunds;
+    SET WORK.FundedFunds;
+    COLUMN Funded_Fund TYPE = BOOLEAN; Funded_Fund = 1; 
+RUN;
+
+PROC FAQUERY QUERY="IT Admin - Program Queries\Pricing Report Revised 012122"
+    (
+    Start_Date = %Start_Date
+    End_Date = %End_Date
+    );    
+    TABLE 'Default' OUT = WORK.PricingReportQry;
+RUN;
+//PROC PRINT DATA = WORK.PricingReportQry LABEL; RUN;
+
+PROC FAQUERY QUERY="IT Admin - Program Queries\Pricing Report - NB SHARES"
+    (
+    End_Date = %End_Date
+    );    
+    TABLE 'Changes' OUT = WORK.NBSharesQry;
+RUN;
+//PROC PRINT DATA = WORK.NBSharesQry LABEL; RUN;
+
+PROC MEANS DATA = WORK.NBSharesQry
+    OUT = WORK.NBShares;
+    CLASS Investee Investor Fund_Status;
+    SUM DIK_NB_Shares (NAME = Sum_DIK_NB_Shares LABEL = 'DIK NB Shares');
+RUN;
+//PROC PRINT DATA = WORK.NBShares LABEL; RUN;
+
+DATA WORK.PricingReport;
+    MERGE WORK.PricingReportQry (IN = OK_L)
+          WORK.NBShares (IN = OK_R);
+    BY Investee;
+    _OUTPUT_ = OK_L;
+RUN;
+//PROC PRINT DATA = WORK.PricingReport; RUN;
+
+DATA WORK.PricingReport;
+    MERGE WORK.PricingReport (IN = OK_L)
+          WORK.LiquidatedFunds (IN = OK_R);
+    BY Investee;
+    _OUTPUT_ = OK_L;
+RUN;
+
+DATA WORK.PricingReport;
+    MERGE WORK.PricingReport (IN = OK_L)
+          WORK.FundedFunds (IN = OK_R);
+    BY Investee;
+    _OUTPUT_ = OK_L;
+RUN;
+//PROC PRINT DATA = WORK.PricingReport; RUN;
+
+DATA WORK.PricingReport;
+    SET WORK.PricingReport (WHERE (Liquidated_Fund IS NULL OR Liquidated_Fund <> 'TRUE') AND Funded_Fund = 'TRUE');
+    COLUMN Report_Month TYPE = String; Report_Month = MONTH(%End_Date);
+    COLUMN Report_Year TYPE = Float; Report_Year = YEAR(%End_Date); 
+RUN;
+//PROC PRINT DATA = WORK.PricingReport; RUN;
+
+/*
+PROC EXPORTEXCEL FILE=GETTEMPPATH()+"\PricingReport.xlsx";// LABEL;
+   TABLE = WORK.PricingReport
+   SHEETNAME="PricingReport";
+RUN;
+*/
+
+PROC OFFICE FILE= "Pricing Report As of " + Format(Year(%End_Date),"0000") + "-" + Format(Month(%End_Date),"00") + "-" + Format(Day(%End_Date),"00") + ".xlsx"; 
+    SET WORK.PricingReport;
+    TEMPLATE "&Pricing Report Template v2.xlsx";
+RUN;
+
