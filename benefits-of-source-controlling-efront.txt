@@ -5,6 +5,7 @@ NOTE: I copied the programs that were in UAT, not PROD.
    b. Restoring versions as needed.
 
 2. Searchability across entire code base using command-line tools.
+   (Google is a testament to the value of search!)
    a. Uses of particular statements.
    b. References to particular efront tables.
       -Retire unused ones.
