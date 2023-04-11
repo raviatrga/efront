@@ -1,3 +1,31 @@
-1. Decompose 'Private Debt & Equity/PDE_Dashboard_Programs/Version2/prg_PDE-DashBoard_Directs.efront'.
-2. Get all Programs into the Git repo.
-3. Generate an inventory of every DATA and PROC statement.
+-Generate an inventory of every DATA and PROC statement.
+
+-We talkin' about PRACTICE:
+ From Brandon's ping:
+ --------------------
+ 1. DATA step:
+    -SET
+    -MERGE
+    -OUTPUT
+    -SQL
+    -WHERE
+    -RENAME
+    -DROP
+    -KEEP
+    -COLUMN definitions and assignments
+    -conditional statements and loops
+ 
+ 2. PROC step:
+    -MEANS
+     -FIRST
+     -LAST
+     -AVG
+     -IRR
+     -MOC
+    -PRINT
+    -DATA
+    -PUT
+    -SORT
+    -EXPORTEXCEL
+    -EXPORT
+    -
