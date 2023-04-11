@@ -1,0 +1,5 @@
+So if I examine the code and output,
+it appears that `PUT` gets written to the "top" of the DATA component,
+with the `OUTPUT` to *follow* that?
+
+(This language is so strange!)
